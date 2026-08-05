@@ -27,7 +27,13 @@ def rembg_session(model_name: str = "isnet-general-use"):
     """Return a warm rembg session, or None when unavailable.
 
     rembg downloads ONNX weights on first use. Any failure (missing package,
-    no network, corrupted cache) degrades to the classical saliency path.
+    missing onnxruntime, no network, corrupted cache) degrades to the classical
+    saliency path.
+
+    NB: BaseException, not Exception. Installed without its `[cpu]`/`[gpu]`
+    extra, rembg has no ONNX runtime and terminates the interpreter on import
+    rather than raising a normal error. An optional dependency must never be
+    able to take the process down.
     """
     if FORCE_CLASSICAL:
         return None
@@ -35,7 +41,7 @@ def rembg_session(model_name: str = "isnet-general-use"):
         from rembg import new_session  # type: ignore
 
         return new_session(model_name)
-    except Exception as exc:  # pragma: no cover - environment dependent
+    except BaseException as exc:  # pragma: no cover - environment dependent
         log.info("rembg unavailable (%s); using classical saliency fallback", exc)
         return None
 
@@ -49,7 +55,7 @@ def easyocr_reader():
         import easyocr  # type: ignore
 
         return easyocr.Reader(["en"], gpu=_torch_gpu(), verbose=False)
-    except Exception as exc:  # pragma: no cover
+    except BaseException as exc:  # pragma: no cover
         log.info("easyocr unavailable (%s); using MSER/SWT text fallback", exc)
         return None
 
@@ -62,7 +68,7 @@ def has_tesseract() -> bool:
 
         pytesseract.get_tesseract_version()
         return True
-    except Exception:
+    except BaseException:
         return False
 
 
@@ -71,7 +77,7 @@ def _torch_gpu() -> bool:
         import torch  # type: ignore
 
         return bool(torch.cuda.is_available())
-    except Exception:
+    except BaseException:
         return False
 
 
@@ -84,7 +90,7 @@ def has_lama() -> bool:
         import simple_lama_inpainting  # type: ignore  # noqa: F401
 
         return True
-    except Exception:
+    except BaseException:
         return False
 
 
@@ -96,7 +102,7 @@ def lama_inpainter():
         from simple_lama_inpainting import SimpleLama  # type: ignore
 
         return SimpleLama()
-    except Exception as exc:  # pragma: no cover
+    except BaseException as exc:  # pragma: no cover
         log.info("LaMa init failed (%s); using Telea/structural inpaint", exc)
         return None
 
@@ -107,7 +113,7 @@ def has_pytoshop() -> bool:
         import pytoshop  # type: ignore  # noqa: F401
 
         return True
-    except Exception:
+    except BaseException:
         return False
 
 

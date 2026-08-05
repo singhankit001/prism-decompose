@@ -102,7 +102,10 @@ else
 fi
 
 # --------------------------------------------------------------- backends --
-python - <<'PY'
+# Advisory only. Trailing `|| true` because probing an optional dependency must
+# never abort startup under `set -e` — some packages terminate the interpreter
+# on import when installed without their runtime extra.
+python - <<'PY' 2>/dev/null || true
 try:
     from layerforge import backends
     b = backends.describe()
@@ -111,10 +114,11 @@ try:
     print(f"\033[32m✓\033[0m Backends: subject=\033[1m{b['subject']}\033[0m, "
           f"text=\033[1m{b['text_detection']}\033[0m  \033[2m[{tag}]\033[0m")
     if not neural:
-        print("\033[2m  rembg weights download on first decomposition; "
-              "quality improves automatically once cached.\033[0m")
-except Exception as exc:
-    print(f"\033[33m!\033[0m Backend probe failed: {exc}")
+        print("\033[2m  Running the weights-free path. Install extras with "
+              "./run.sh --full, or rembg weights will cache on first use.\033[0m")
+except BaseException as exc:
+    print(f"\033[33m!\033[0m Backend probe skipped ({type(exc).__name__}); "
+          f"pipeline still runs on the classical path.")
 PY
 
 # ------------------------------------------------------------------ port ---

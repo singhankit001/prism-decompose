@@ -13,7 +13,10 @@ python-multipart>=0.0.9
 # Recommended - the pipeline detects these at runtime and upgrades to them
 # automatically. Without them it falls back gracefully; nothing breaks.
 # ---------------------------------------------------------------------------
-rembg>=2.0.50          # U^2-Net / IS-Net salient object matting  -> subjects
+# The [cpu] extra pulls in onnxruntime. Plain `rembg` installs the package
+# without a runtime and then raises on import, so the extra is required.
+# Swap to rembg[gpu] on an NVIDIA/CUDA machine.
+rembg[cpu]>=2.0.50     # U^2-Net / IS-Net salient object matting  -> subjects
 pytesseract>=0.3.10    # text recognition inside detected boxes   (needs the
                        # tesseract-ocr system binary; see README)
 pytoshop>=1.2.1        # layered .psd export
