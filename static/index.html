@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LayerForge — 3D Image Decomposition</title>
+<style>
+  :root {
+    --bg:        #04050a;
+    --panel:     rgba(14, 18, 30, 0.72);
+    --panel-2:   rgba(20, 26, 42, 0.86);
+    --stroke:    rgba(120, 170, 255, 0.16);
+    --stroke-hi: rgba(120, 220, 255, 0.55);
+    --text:      #e8eefc;
+    --muted:     #8798b8;
+    --cyan:      #49e8ff;
+    --violet:    #a78bfa;
+    --amber:     #ffb865;
+    --green:     #5eead4;
+    --pink:      #f472b6;
+    --radius:    14px;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%; width: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: var(--sans); overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #scene { position: fixed; inset: 0; display: block; z-index: 0; }
+
+  /* ambient vignette + aurora wash over the canvas */
+  .ambient {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background:
+      radial-gradient(1200px 700px at 20% -10%, rgba(73,232,255,.10), transparent 60%),
+      radial-gradient(1000px 800px at 90% 110%, rgba(167,139,250,.12), transparent 60%),
+      radial-gradient(900px 900px at 50% 50%, transparent 35%, rgba(0,0,0,.72) 100%);
+  }
+  .scanlines {
+    position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: .35;
+    background: repeating-linear-gradient(
+      to bottom, rgba(255,255,255,.022) 0 1px, transparent 1px 3px);
+    mix-blend-mode: overlay;
+  }
+
+  /* ---------------- chrome ---------------- */
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 22px; pointer-events: none;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; pointer-events: auto; }
+  .brand-mark {
+    width: 30px; height: 30px; position: relative; flex: none;
+  }
+  .brand-mark i {
+    position: absolute; inset: 0; border: 1.5px solid var(--cyan);
+    border-radius: 5px; opacity: .95;
+    animation: markFloat 5s ease-in-out infinite;
+  }
+  .brand-mark i:nth-child(1){ transform: translate(-5px,-5px); border-color: var(--violet); animation-delay: -.7s; }
+  .brand-mark i:nth-child(2){ transform: translate(0,0);       border-color: var(--cyan); }
+  .brand-mark i:nth-child(3){ transform: translate(5px,5px);   border-color: var(--pink); animation-delay: -1.4s; opacity:.75; }
+  @keyframes markFloat {
+    0%,100% { transform: translate(var(--tx,0), var(--ty,0)); }
+    50%     { transform: translate(calc(var(--tx,0px) * 1.7), calc(var(--ty,0px) * 1.7)); }
+  }
+  .brand h1 {
+    font-size: 15px; letter-spacing: .22em; font-weight: 700; text-transform: uppercase;
+  }
+  .brand h1 span { color: var(--cyan); }
+  .brand small {
+    display:block; font-family: var(--mono); font-size: 9.5px;
+    letter-spacing: .16em; color: var(--muted); margin-top: 2px; text-transform: uppercase;
+  }
+  .head-stats {
+    margin-left: auto; display: flex; gap: 8px; pointer-events: auto; flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .chip {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+    padding: 6px 11px; border-radius: 999px; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--stroke);
+    backdrop-filter: blur(14px); white-space: nowrap;
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.good b { color: var(--green); }
+  .chip.warn b { color: var(--amber); }
+
+  /* ---------------- dropzone ---------------- */
+  #drop {
+    position: fixed; inset: 0; z-index: 40;
+    display: grid; place-items: center;
+    background: radial-gradient(900px 600px at 50% 45%, rgba(10,14,26,.86), rgba(4,5,10,.96));
+    backdrop-filter: blur(3px);
+    transition: opacity .55s ease, visibility .55s;
+  }
+  #drop.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+  .drop-card {
+    width: min(560px, 88vw); padding: 46px 40px; text-align: center;
+    border-radius: 22px; position: relative;
+    background: linear-gradient(180deg, rgba(20,26,44,.85), rgba(10,14,26,.85));
+    border: 1px solid var(--stroke); overflow: hidden;
+  }
+  .drop-card::before {
+    content:''; position: absolute; inset: -2px; border-radius: 24px; z-index: -1;
+    background: conic-gradient(from 0deg, var(--cyan), var(--violet), var(--pink), var(--amber), var(--cyan));
+    filter: blur(14px); opacity: .28; animation: spin 9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #drop.dragging .drop-card::before { opacity: .65; }
+  .drop-ico { font-size: 40px; margin-bottom: 14px; filter: drop-shadow(0 0 14px rgba(73,232,255,.5)); }
+  .drop-card h2 { font-size: 22px; font-weight: 650; letter-spacing: -.01em; margin-bottom: 8px; }
+  .drop-card p  { font-size: 13.5px; color: var(--muted); line-height: 1.65; margin-bottom: 22px; }
+  .btn {
+    font-family: var(--sans); font-size: 13px; font-weight: 600; letter-spacing: .02em;
+    padding: 11px 22px; border-radius: 10px; cursor: pointer; color: #04121a;
+    background: linear-gradient(135deg, var(--cyan), #7dd3fc);
+    border: none; transition: transform .18s ease, box-shadow .18s ease;
+    box-shadow: 0 6px 22px rgba(73,232,255,.28);
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(73,232,255,.4); }
+  .btn.ghost {
+    background: transparent; color: var(--text); border: 1px solid var(--stroke);
+    box-shadow: none;
+  }
+  .btn.ghost:hover { border-color: var(--stroke-hi); background: rgba(73,232,255,.06); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  .samples { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+  .samples span { font-size: 11px; color: var(--muted); width: 100%; margin-bottom: 2px; }
+  .sample {
+    font-family: var(--mono); font-size: 10.5px; padding: 6px 12px; border-radius: 8px;
+    background: rgba(255,255,255,.04); border: 1px solid var(--stroke);
+    color: var(--muted); cursor: pointer; transition: all .18s;
+  }
+  .sample:hover { color: var(--cyan); border-color: var(--stroke-hi); background: rgba(73,232,255,.07); }
+
+  /* ---------------- progress ---------------- */
+  #progress {
+    position: fixed; inset: 0; z-index: 45; display: none; place-items: center;
+    background: radial-gradient(900px 600px at 50% 50%, rgba(8,11,20,.82), rgba(4,5,10,.95));
+    backdrop-filter: blur(6px);
+  }
+  #progress.on { display: grid; }
+  .prog-card { width: min(430px, 88vw); }
+  .prog-title {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--cyan); text-align: center; margin-bottom: 22px;
+  }
+  .stage-row {
+    display: flex; align-items: center; gap: 12px; padding: 9px 14px; margin-bottom: 5px;
+    border-radius: 10px; border: 1px solid transparent; transition: all .3s ease;
+  }
+  .stage-row .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    background: rgba(255,255,255,.14); transition: all .3s;
+  }
+  .stage-row .nm { font-size: 13px; color: var(--muted); transition: color .3s; }
+  .stage-row .tick { margin-left: auto; font-size: 12px; color: var(--green); opacity: 0; transition: opacity .3s; }
+  .stage-row.active {
+    background: rgba(73,232,255,.07); border-color: rgba(73,232,255,.22);
+  }
+  .stage-row.active .dot {
+    background: var(--cyan); box-shadow: 0 0 12px var(--cyan);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  .stage-row.active .nm { color: var(--text); }
+  .stage-row.done .dot { background: var(--green); }
+  .stage-row.done .nm  { color: rgba(232,238,252,.62); }
+  .stage-row.done .tick { opacity: 1; }
+  @keyframes pulse { 50% { transform: scale(1.55); opacity: .55; } }
+  .bar { height: 2px; background: rgba(255,255,255,.07); border-radius: 2px; margin-top: 20px; overflow: hidden; }
+  .bar i {
+    display: block; height: 100%; width: 0%; border-radius: 2px;
+    background: linear-gradient(90deg, var(--cyan), var(--violet));
+    box-shadow: 0 0 12px rgba(73,232,255,.7); transition: width .45s cubic-bezier(.4,0,.2,1);
+  }
+  .prog-pct {
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+    text-align: center; margin-top: 10px; letter-spacing: .12em;
+  }
+
+  /* ---------------- side panel ---------------- */
+  aside {
+    position: fixed; top: 74px; right: 16px; bottom: 104px; width: 288px; z-index: 20;
+    display: flex; flex-direction: column; gap: 10px;
+    opacity: 0; transform: translateX(24px); pointer-events: none;
+    transition: opacity .6s ease, transform .6s ease;
+  }
+  aside.on { opacity: 1; transform: none; pointer-events: auto; }
+  .card {
+    background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--radius);
+    backdrop-filter: blur(18px); overflow: hidden;
+  }
+  .card-h {
+    display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+    border-bottom: 1px solid var(--stroke);
+    font-family: var(--mono); font-size: 10px; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .card-h b { color: var(--cyan); font-weight: 600; }
+  .card-h .count { margin-left: auto; color: var(--text); }
+  #layerList { overflow-y: auto; flex: 1; padding: 6px; }
+  #layerList::-webkit-scrollbar { width: 5px; }
+  #layerList::-webkit-scrollbar-thumb { background: rgba(120,170,255,.2); border-radius: 4px; }
+
+  .layer {
+    display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 9px;
+    cursor: pointer; border: 1px solid transparent; transition: all .2s;
+  }
+  .layer:hover { background: rgba(73,232,255,.07); border-color: rgba(73,232,255,.2); }
+  .layer.sel { background: rgba(73,232,255,.12); border-color: var(--stroke-hi); }
+  .layer.off { opacity: .32; }
+  .thumb {
+    width: 34px; height: 34px; border-radius: 6px; flex: none; object-fit: contain;
+    background: repeating-conic-gradient(rgba(255,255,255,.05) 0 25%, transparent 0 50%) 0 0/8px 8px;
+    border: 1px solid rgba(255,255,255,.07);
+  }
+  .layer-meta { min-width: 0; flex: 1; }
+  .layer-name {
+    font-size: 11.5px; font-weight: 550; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .layer-sub {
+    font-family: var(--mono); font-size: 9px; color: var(--muted);
+    letter-spacing: .06em; margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .kind {
+    font-family: var(--mono); font-size: 8px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 4px; flex: none;
+  }
+  .k-background { background: rgba(148,163,184,.16); color: #cbd5e1; }
+  .k-decor      { background: rgba(251,146,60,.16);  color: var(--amber); }
+  .k-subject    { background: rgba(73,232,255,.16);  color: var(--cyan); }
+  .k-graphic    { background: rgba(167,139,250,.18); color: var(--violet); }
+  .k-text       { background: rgba(244,114,182,.16); color: var(--pink); }
+  .k-foreground { background: rgba(94,234,212,.16);  color: var(--green); }
+
+  .info { padding: 11px 14px; display: grid; gap: 7px; }
+  .info div { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+  .info span:first-child { color: var(--muted); }
+  .info span:last-child  { font-family: var(--mono); font-size: 10px; text-align: right; }
+
+  /* ---------------- transport ---------------- */
+  footer {
+    position: fixed; bottom: 16px; left: 50%; transform: translate(-50%, 24px); z-index: 20;
+    display: flex; align-items: center; gap: 14px; padding: 11px 16px;
+    background: var(--panel-2); border: 1px solid var(--stroke); border-radius: 16px;
+    backdrop-filter: blur(20px); opacity: 0; pointer-events: none;
+    transition: opacity .6s ease .1s, transform .6s ease .1s;
+    max-width: calc(100vw - 32px); flex-wrap: wrap; justify-content: center;
+  }
+  footer.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+  .ctl { display: flex; align-items: center; gap: 9px; }
+  .ctl label {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); white-space: nowrap;
+  }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 118px; height: 3px;
+    background: rgba(255,255,255,.12); border-radius: 3px; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--cyan); box-shadow: 0 0 10px rgba(73,232,255,.75); cursor: grab;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 13px; height: 13px; border-radius: 50%; border: none;
+    background: var(--cyan); box-shadow: 0 0 10px rgba(73,232,255,.75); cursor: grab;
+  }
+  .icon-btn {
+    width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+    background: rgba(255,255,255,.04); border: 1px solid var(--stroke);
+    color: var(--muted); cursor: pointer; font-size: 14px; transition: all .18s;
+  }
+  .icon-btn:hover { color: var(--cyan); border-color: var(--stroke-hi); background: rgba(73,232,255,.08); }
+  .icon-btn.on { color: var(--cyan); border-color: var(--stroke-hi); background: rgba(73,232,255,.14); }
+  .divider { width: 1px; height: 24px; background: var(--stroke); }
+
+  .toast {
+    position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%) translateY(12px);
+    z-index: 60; padding: 10px 18px; border-radius: 10px; font-size: 12.5px;
+    background: var(--panel-2); border: 1px solid var(--stroke); backdrop-filter: blur(16px);
+    opacity: 0; transition: all .3s ease; pointer-events: none; max-width: 80vw; text-align: center;
+  }
+  .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.err { border-color: rgba(244,114,182,.5); color: #fecdd3; }
+
+  .hint {
+    position: fixed; left: 22px; bottom: 20px; z-index: 20;
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; color: rgba(135,152,184,.55);
+    line-height: 1.9; opacity: 0; transition: opacity .6s ease .3s; pointer-events: none;
+  }
+  .hint.on { opacity: 1; }
+
+  @media (max-width: 860px) {
+    aside { display: none; }
+    .head-stats { display: none; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="ambient"></div>
+<div class="scanlines"></div>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">
+      <i style="--tx:-5px;--ty:-5px"></i><i></i><i style="--tx:5px;--ty:5px"></i>
+    </div>
+    <div>
+      <h1>Layer<span>Forge</span></h1>
+      <small id="tagline">image → layer decomposition</small>
+    </div>
+  </div>
+  <div class="head-stats" id="headStats"></div>
+</header>
+
+<div id="drop">
+  <div class="drop-card">
+    <div class="drop-ico">◳</div>
+    <h2>Drop an image to decompose</h2>
+    <p>Any poster, advert or social creative. LayerForge separates it into
+       background, subjects, graphics and text — then rebuilds the stack in 3D.</p>
+    <button class="btn" id="pick">Choose image</button>
+    <input type="file" id="file" accept="image/*" hidden />
+    <div class="samples" id="samples"><span>or try a sample</span></div>
+  </div>
+</div>
+
+<div id="progress">
+  <div class="prog-card">
+    <div class="prog-title" id="progTitle">Decomposing</div>
+    <div id="stages"></div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="prog-pct" id="pct">0%</div>
+  </div>
+</div>
+
+<aside id="panel">
+  <div class="card" style="display:flex;flex-direction:column;min-height:0;flex:1">
+    <div class="card-h"><b>◆</b> Layers <span class="count" id="lcount">0</span></div>
+    <div id="layerList"></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><b>◆</b> Inspector</div>
+    <div class="info" id="inspector">
+      <div><span>Selection</span><span>none</span></div>
+    </div>
+  </div>
+</aside>
+
+<footer id="transport">
+  <div class="ctl">
+    <label>Explode</label>
+    <input type="range" id="explode" min="0" max="100" value="45" />
+  </div>
+  <div class="divider"></div>
+  <div class="ctl">
+    <label>Spread</label>
+    <input type="range" id="spread" min="0" max="100" value="0" />
+  </div>
+  <div class="divider"></div>
+  <div class="icon-btn on" id="rotate" title="Auto-orbit">◑</div>
+  <div class="icon-btn" id="reset" title="Reset view">⟲</div>
+  <div class="icon-btn" id="flat" title="Flatten to original">▣</div>
+  <div class="divider"></div>
+  <div class="icon-btn" id="download" title="Download layer bundle (ZIP)">⤓</div>
+  <div class="icon-btn" id="again" title="New image">＋</div>
+</footer>
+
+<div class="hint" id="hint">
+  DRAG — ORBIT<br>SCROLL — ZOOM<br>CLICK LAYER — FOCUS
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
+
+/* =========================================================================
+   tiny tween helper — avoids a second CDN dependency
+   ========================================================================= */
+const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+const easeInOut    = t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;
+const tweens = [];
+function tween(from, to, ms, onUpdate, ease = easeOutCubic, onDone) {
+  const t0 = performance.now();
+  tweens.push({ t0, ms, from, to, onUpdate, ease, onDone });
+}
+function stepTweens(now) {
+  for (let i = tweens.length - 1; i >= 0; i--) {
+    const tw = tweens[i];
+    let p = Math.min((now - tw.t0) / tw.ms, 1);
+    tw.onUpdate(tw.from + (tw.to - tw.from) * tw.ease(p));
+    if (p >= 1) { tweens.splice(i, 1); tw.onDone && tw.onDone(); }
+  }
+}
+
+/* =========================================================================
+   scene bootstrap
+   ========================================================================= */
+const canvas   = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.06;
+
+const scene  = new THREE.Scene();
+scene.fog    = new THREE.FogExp2(0x04050a, 0.021);
+
+const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.1, 400);
+camera.position.set(0, 0, 46);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping  = true;
+controls.dampingFactor  = 0.055;
+controls.rotateSpeed    = 0.62;
+controls.minDistance    = 6;
+controls.maxDistance    = 130;
+controls.autoRotate      = true;
+controls.autoRotateSpeed = 0.55;
+
+/* lighting: mostly for the frame meshes, planes are unlit by design so the
+   source pixels are shown faithfully rather than re-shaded */
+scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+const key = new THREE.DirectionalLight(0x9fd8ff, 1.0); key.position.set(6, 8, 14); scene.add(key);
+const rim = new THREE.PointLight(0xa78bfa, 90, 90);    rim.position.set(-14, -6, -22); scene.add(rim);
+const rim2 = new THREE.PointLight(0x49e8ff, 70, 90);   rim2.position.set(16, 10, -16); scene.add(rim2);
+
+/* ---- starfield ---------------------------------------------------------- */
+function makeStars(count, spread, size, color, opacity) {
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    pos[i*3+0] = (Math.random() - .5) * spread;
+    pos[i*3+1] = (Math.random() - .5) * spread;
+    pos[i*3+2] = (Math.random() - .5) * spread - 20;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({
+    size, color, transparent: true, opacity,
+    depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true
+  });
+  return new THREE.Points(geo, mat);
+}
+const starsFar  = makeStars(2600, 260, 0.30, 0x8fb6ff, 0.55);
+const starsNear = makeStars(700,  150, 0.55, 0x49e8ff, 0.40);
+scene.add(starsFar, starsNear);
+
+/* ---- horizon grid ------------------------------------------------------- */
+const grid = new THREE.GridHelper(180, 60, 0x1b3a5c, 0x122436);
+grid.material.transparent = true; grid.material.opacity = 0.24;
+grid.position.y = -22;
+scene.add(grid);
+
+/* ---- post-processing ---------------------------------------------------- */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(innerWidth, innerHeight), 0.52, 0.72, 0.86);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+/* =========================================================================
+   layer stack
+   ========================================================================= */
+const stackGroup = new THREE.Group();
+scene.add(stackGroup);
+
+const CANVAS_H   = 16;          // world units for the full image height
+let planes       = [];          // { mesh, frame, data, baseZ, homeX, homeY }
+let manifest     = null;
+let jobId        = null;
+let selected     = null;
+let hovered      = null;
+let explodeAmt   = 0.45;
+let spreadAmt    = 0.0;
+
+const loader = new THREE.TextureLoader();
+
+function clearStack() {
+  for (const p of planes) {
+    stackGroup.remove(p.mesh);
+    p.mesh.geometry.dispose();
+    if (p.mesh.material.map) p.mesh.material.map.dispose();
+    p.mesh.material.dispose();
+    if (p.frame) { p.frame.geometry.dispose(); p.frame.material.dispose(); }
+  }
+  planes = []; selected = null; hovered = null;
+}
+
+const KIND_COLOR = {
+  background: 0x94a3b8, decor: 0xfb923c, subject: 0x49e8ff,
+  graphic:    0xa78bfa, text:  0xf472b6, foreground: 0x5eead4
+};
+
+async function buildStack(mf, id) {
+  clearStack();
+  manifest = mf; jobId = id;
+
+  const W = mf.width, H = mf.height;
+  const scale = CANVAS_H / H;                 // world units per source pixel
+  const layers = mf.layers.filter(l => l.file);
+  const n = Math.max(layers.length, 1);
+
+  let loaded = 0;
+  await Promise.all(layers.map(layer => new Promise(resolve => {
+    const url = `/api/jobs/${id}/file/${layer.file}`;
+    loader.load(url, tex => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter  = THREE.LinearMipmapLinearFilter;
+      tex.magFilter  = THREE.LinearFilter;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+      // Layers are exported cropped to their bbox with the offset recorded in
+      // the manifest, so each plane is sized and placed from that geometry —
+      // the 3D stack reproduces the original composition exactly.
+      const size   = layer.meta?.size   || [W, H];
+      const offset = layer.meta?.offset || [0, 0];
+      const pw = size[0] * scale, ph = size[1] * scale;
+
+      const geo = new THREE.PlaneGeometry(pw, ph);
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, side: THREE.DoubleSide,
+        depthWrite: false, alphaTest: 0.004, toneMapped: false
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+
+      const homeX =  (offset[0] + size[0] / 2 - W / 2) * scale;
+      const homeY = -(offset[1] + size[1] / 2 - H / 2) * scale;
+      mesh.position.set(homeX, homeY, 0);
+      mesh.renderOrder = layer.z;
+      mesh.userData.layer = layer;
+
+      // glowing outline, revealed on hover / selection
+      const edges = new THREE.EdgesGeometry(geo);
+      const frame = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
+        color: KIND_COLOR[layer.kind] ?? 0x49e8ff,
+        transparent: true, opacity: 0, depthWrite: false
+      }));
+      mesh.add(frame);
+
+      stackGroup.add(mesh);
+      planes.push({ mesh, frame, data: layer, baseZ: layer.z, homeX, homeY });
+      loaded++;
+      resolve();
+    }, undefined, () => { loaded++; resolve(); });
+  })));
+
+  planes.sort((a, b) => a.baseZ - b.baseZ);
+  layoutStack(true);
+  return loaded;
+}
+
+/** Position every plane from the current explode / spread amounts. */
+function layoutStack(animate = false) {
+  const n = Math.max(planes.length - 1, 1);
+  const depth = explodeAmt * 44;                 // total Z extent
+  planes.forEach((p, i) => {
+    const t  = i / n;
+    const tz = -depth / 2 + t * depth;
+    // "spread" fans layers outward in a gentle arc so dense stacks stay legible
+    const ang = t * Math.PI * 2;
+    const sx  = Math.cos(ang) * spreadAmt * 13;
+    const sy  = Math.sin(ang) * spreadAmt * 7;
+    const tx = p.homeX + sx, ty = p.homeY + sy;
+    if (animate) {
+      const fz = p.mesh.position.z, fx = p.mesh.position.x, fy = p.mesh.position.y;
+      tween(0, 1, 900 + i * 55, v => {
+        p.mesh.position.z = fz + (tz - fz) * v;
+        p.mesh.position.x = fx + (tx - fx) * v;
+        p.mesh.position.y = fy + (ty - fy) * v;
+      }, easeInOut);
+    } else {
+      p.mesh.position.set(tx, ty, tz);
+    }
+  });
+}
+
+/* =========================================================================
+   interaction
+   ========================================================================= */
+const ray = new THREE.Raycaster();
+const ptr = new THREE.Vector2();
+let pointerInsideUI = false;
+
+addEventListener('pointermove', e => {
+  pointerInsideUI = !!e.target.closest('aside, footer, header, #drop, #progress');
+  ptr.x = (e.clientX / innerWidth)  * 2 - 1;
+  ptr.y = -(e.clientY / innerHeight) * 2 + 1;
+});
+
+function pick() {
+  if (pointerInsideUI || !planes.length) return null;
+  ray.setFromCamera(ptr, camera);
+  const hits = ray.intersectObjects(planes.map(p => p.mesh), false);
+  for (const h of hits) {
+    // ignore fully transparent parts so you can reach layers behind holes
+    if (h.object.userData.layer?.kind === 'background' && hits.length > 1) continue;
+    return planes.find(p => p.mesh === h.object) || null;
+  }
+  return null;
+}
+
+canvas.addEventListener('click', () => {
+  const hit = pick();
+  if (hit) selectLayer(hit.data.id, true);
+});
+
+function selectLayer(id, focus = false) {
+  selected = planes.find(p => p.data.id === id) || null;
+  document.querySelectorAll('.layer').forEach(el =>
+    el.classList.toggle('sel', el.dataset.id === id));
+  renderInspector(selected?.data ?? null);
+  if (focus && selected) {
+    controls.autoRotate = false;
+    document.getElementById('rotate').classList.remove('on');
+    const p = selected.mesh.position;
+    const target = new THREE.Vector3(p.x, p.y, p.z);
+    const from = controls.target.clone();
+    tween(0, 1, 850, v => {
+      controls.target.lerpVectors(from, target, v);
+    }, easeInOut);
+  }
+}
+
+/* =========================================================================
+   HUD rendering
+   ========================================================================= */
+const $ = id => document.getElementById(id);
+
+function renderLayerList() {
+  const list = $('layerList');
+  list.innerHTML = '';
+  $('lcount').textContent = manifest.layers.length;
+
+  [...manifest.layers].reverse().forEach(layer => {
+    const row = document.createElement('div');
+    row.className = 'layer';
+    row.dataset.id = layer.id;
+
+    const img = document.createElement('img');
+    img.className = 'thumb'; img.loading = 'lazy';
+    if (layer.file) img.src = `/api/jobs/${jobId}/file/${layer.file}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'layer-meta';
+    const pct = (layer.coverage * 100).toFixed(layer.coverage < 0.01 ? 2 : 1);
+    meta.innerHTML =
+      `<div class="layer-name">${escapeHtml(layer.label)}</div>` +
+      `<div class="layer-sub">Z${String(layer.z).padStart(2,'0')} · ${pct}% · ${(layer.confidence*100).toFixed(0)}% conf</div>`;
+
+    const kind = document.createElement('div');
+    kind.className = `kind k-${layer.kind}`;
+    kind.textContent = layer.kind.slice(0, 4);
+
+    row.append(img, meta, kind);
+    row.addEventListener('click', () => selectLayer(layer.id, true));
+    row.addEventListener('mouseenter', () => { hovered = layer.id; });
+    row.addEventListener('mouseleave', () => { hovered = null; });
+    list.appendChild(row);
+  });
+}
+
+function renderInspector(layer) {
+  const box = $('inspector');
+  if (!layer) {
+    box.innerHTML = '<div><span>Selection</span><span>none</span></div>';
+    return;
+  }
+  const rows = [
+    ['Kind',     layer.kind],
+    ['Depth',    `Z${layer.z}`],
+    ['Coverage', `${(layer.coverage*100).toFixed(2)}%`],
+    ['Confidence', `${(layer.confidence*100).toFixed(0)}%`],
+    ['Size',     layer.meta?.size ? `${layer.meta.size[0]}×${layer.meta.size[1]}` : '—'],
+  ];
+  if (layer.color) {
+    rows.push(['Colour',
+      `<i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgb(${layer.color.join(',')});margin-right:5px;vertical-align:middle"></i>` +
+      `rgb(${layer.color.join(',')})`]);
+  }
+  if (layer.text) rows.push(['Text', `“${escapeHtml(layer.text.slice(0, 42))}”`]);
+
+  box.innerHTML = rows.map(([k, v]) =>
+    `<div><span>${k}</span><span>${v}</span></div>`).join('');
+}
+
+function renderHeadStats() {
+  const q = manifest.quality || {};
+  const t = manifest.timings_ms || {};
+  const total = Object.values(t).reduce((a, b) => a + b, 0);
+  const b = manifest.backends || {};
+  const neural = b.subject && b.subject !== 'saliency+grabcut';
+  $('headStats').innerHTML = [
+    `<div class="chip"><b>${manifest.layer_count}</b> layers</div>`,
+    `<div class="chip good"><b>${(q.psnr_db ?? 0).toFixed(1)}</b> dB recomposite</div>`,
+    `<div class="chip"><b>${(total/1000).toFixed(1)}</b>s</div>`,
+    `<div class="chip ${neural ? 'good' : 'warn'}"><b>${escapeHtml(b.subject || '—')}</b></div>`,
+  ].join('');
+  $('tagline').textContent = `${manifest.source} · ${manifest.width}×${manifest.height}`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+let toastTimer;
+function toast(msg, isError = false) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.toggle('err', isError);
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), 3600);
+}
+
+/* =========================================================================
+   pipeline driver
+   ========================================================================= */
+let STAGES = [];
+
+async function loadHealth() {
+  try {
+    const r = await fetch('/api/health');
+    const h = await r.json();
+    STAGES = h.stages || [];
+    renderStageList();
+  } catch { /* health is advisory only */ }
+}
+
+function renderStageList() {
+  $('stages').innerHTML = STAGES.map(s =>
+    `<div class="stage-row" data-k="${s.key}">
+       <div class="dot"></div><div class="nm">${escapeHtml(s.label)}</div>
+       <div class="tick">✓</div>
+     </div>`).join('');
+}
+
+function markStage(key, progress) {
+  const rows = [...document.querySelectorAll('.stage-row')];
+  const idx  = rows.findIndex(r => r.dataset.k === key);
+  rows.forEach((r, i) => {
+    r.classList.toggle('active', i === idx);
+    r.classList.toggle('done', idx >= 0 && i < idx);
+  });
+  if (key === 'done' || key === 'export') rows.forEach(r => {
+    r.classList.remove('active'); r.classList.add('done');
+  });
+  $('bar').style.width = `${Math.round(progress * 100)}%`;
+  $('pct').textContent = `${Math.round(progress * 100)}%`;
+}
+
+async function runFile(file) {
+  if (!file) return;
+  if (file.size > 25 * 1024 * 1024) { toast('Image is larger than 25 MB', true); return; }
+
+  $('drop').classList.add('hidden');
+  $('progress').classList.add('on');
+  renderStageList();
+  markStage('start', 0.02);
+  $('progTitle').textContent = `Decomposing ${file.name}`;
+
+  const form = new FormData();
+  form.append('file', file);
+
+  let job;
+  try {
+    const res = await fetch('/api/decompose', { method: 'POST', body: form });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    job = await res.json();
+  } catch (err) {
+    $('progress').classList.remove('on');
+    $('drop').classList.remove('hidden');
+    toast(`Upload failed: ${err.message}`, true);
+    return;
+  }
+
+  const es = new EventSource(`/api/jobs/${job.job}/events`);
+  es.onmessage = ev => {
+    const d = JSON.parse(ev.data);
+    markStage(d.stage, d.progress ?? 0);
+  };
+  es.addEventListener('complete', async ev => {
+    es.close();
+    const d = JSON.parse(ev.data);
+    if (d.status === 'error') {
+      $('progress').classList.remove('on');
+      $('drop').classList.remove('hidden');
+      toast(`Decomposition failed: ${d.error}`, true);
+      return;
+    }
+    markStage('done', 1);
+    await revealResult(d.manifest, job.job);
+  });
+  es.onerror = () => {
+    es.close();
+    // SSE can drop behind proxies; fall back to polling so the demo still works
+    pollUntilDone(job.job);
+  };
+}
+
+async function pollUntilDone(id) {
+  for (let i = 0; i < 400; i++) {
+    await new Promise(r => setTimeout(r, 600));
+    try {
+      const d = await (await fetch(`/api/jobs/${id}`)).json();
+      markStage(d.stage, d.progress ?? 0);
+      if (d.status === 'done')  { await revealResult(d.manifest, id); return; }
+      if (d.status === 'error') {
+        $('progress').classList.remove('on');
+        $('drop').classList.remove('hidden');
+        toast(`Failed: ${d.error}`, true); return;
+      }
+    } catch { /* keep trying */ }
+  }
+}
+
+async function revealResult(mf, id) {
+  await buildStack(mf, id);
+  renderLayerList();
+  renderHeadStats();
+  renderInspector(null);
+
+  $('progress').classList.remove('on');
+  $('panel').classList.add('on');
+  $('transport').classList.add('on');
+  $('hint').classList.add('on');
+
+  // cinematic entry: dolly in while the stack settles into place
+  camera.position.set(0, 3, 118);
+  controls.target.set(0, 0, 0);
+  tween(118, 46, 2000, v => { camera.position.z = v; }, easeInOut);
+  tween(3, 0, 2000, v => { camera.position.y = v; }, easeInOut);
+  controls.autoRotate = true;
+  $('rotate').classList.add('on');
+
+  toast(`${mf.layer_count} layers · ${(mf.quality?.psnr_db ?? 0).toFixed(1)} dB recomposite`);
+}
+
+/* =========================================================================
+   controls wiring
+   ========================================================================= */
+$('pick').onclick   = () => $('file').click();
+$('file').onchange  = e => runFile(e.target.files[0]);
+
+const drop = $('drop');
+['dragenter','dragover'].forEach(t => addEventListener(t, e => {
+  e.preventDefault(); drop.classList.add('dragging');
+}));
+['dragleave','drop'].forEach(t => addEventListener(t, e => {
+  e.preventDefault();
+  if (t === 'dragleave' && e.relatedTarget) return;
+  drop.classList.remove('dragging');
+}));
+addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer?.files?.[0];
+  if (f) runFile(f);
+});
+
+$('explode').oninput = e => { explodeAmt = e.target.value / 100; layoutStack(false); };
+$('spread').oninput  = e => { spreadAmt  = e.target.value / 100; layoutStack(false); };
+
+$('rotate').onclick = e => {
+  controls.autoRotate = !controls.autoRotate;
+  e.currentTarget.classList.toggle('on', controls.autoRotate);
+};
+$('reset').onclick = () => {
+  controls.target.set(0, 0, 0);
+  tween(camera.position.z, 46, 800, v => { camera.position.z = v; }, easeInOut);
+  tween(camera.position.x, 0,  800, v => { camera.position.x = v; }, easeInOut);
+  tween(camera.position.y, 0,  800, v => { camera.position.y = v; }, easeInOut);
+  stackGroup.rotation.set(0, 0, 0);
+};
+$('flat').onclick = () => {
+  // snap to a head-on view of the reassembled composition
+  controls.autoRotate = false;
+  $('rotate').classList.remove('on');
+  stackGroup.rotation.set(0, 0, 0);
+  controls.target.set(0, 0, 0);
+  $('explode').value = 4; explodeAmt = 0.04;
+  $('spread').value = 0;  spreadAmt = 0;
+  layoutStack(true);
+  tween(camera.position.x, 0, 900, v => { camera.position.x = v; }, easeInOut);
+  tween(camera.position.y, 0, 900, v => { camera.position.y = v; }, easeInOut);
+  tween(camera.position.z, 30, 900, v => { camera.position.z = v; }, easeInOut);
+};
+$('download').onclick = () => {
+  if (!jobId) return;
+  location.href = `/api/jobs/${jobId}/download`;
+};
+$('again').onclick = () => {
+  $('panel').classList.remove('on');
+  $('transport').classList.remove('on');
+  $('hint').classList.remove('on');
+  $('drop').classList.remove('hidden');
+  clearStack();
+};
+
+/* sample shortcuts — served from /static/samples when present */
+const SAMPLES = [
+  ['wellness', '/static/samples/wellness.png'],
+  ['jewels',   '/static/samples/jewels.png'],
+  ['festival', '/static/samples/festival.png'],
+];
+const sampleBox = $('samples');
+SAMPLES.forEach(([name, url]) => {
+  const b = document.createElement('div');
+  b.className = 'sample'; b.textContent = name;
+  b.onclick = async () => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('not available');
+      const blob = await res.blob();
+      runFile(new File([blob], `${name}.png`, { type: 'image/png' }));
+    } catch { toast('Sample not available in this deployment', true); }
+  };
+  sampleBox.appendChild(b);
+});
+
+/* =========================================================================
+   render loop
+   ========================================================================= */
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+
+let last = performance.now();
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+
+  stepTweens(now);
+  controls.update();
+
+  starsFar.rotation.y  += dt * 0.006;
+  starsNear.rotation.y -= dt * 0.011;
+  starsNear.rotation.x += dt * 0.004;
+
+  // hover highlight: lift and outline the layer under the cursor, dim the rest
+  const hit = pick();
+  const activeId = hit?.data.id ?? hovered ?? selected?.data.id ?? null;
+  for (const p of planes) {
+    const isActive = p.data.id === activeId;
+    const isSel    = selected && p.data.id === selected.data.id;
+    const targetOp = activeId ? (isActive ? 1.0 : 0.26) : 1.0;
+    p.mesh.material.opacity += (targetOp - p.mesh.material.opacity) * Math.min(dt * 9, 1);
+
+    const frameOp = isActive ? 0.95 : (isSel ? 0.45 : 0.0);
+    p.frame.material.opacity += (frameOp - p.frame.material.opacity) * Math.min(dt * 9, 1);
+
+    const lift = isActive ? 1.15 : 1.0;
+    p.mesh.scale.x += (lift - p.mesh.scale.x) * Math.min(dt * 8, 1);
+    p.mesh.scale.y += (lift - p.mesh.scale.y) * Math.min(dt * 8, 1);
+  }
+  canvas.style.cursor = hit ? 'pointer' : 'default';
+
+  composer.render();
+}
+
+loadHealth();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>

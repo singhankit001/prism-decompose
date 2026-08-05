@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# Core - required. The pipeline runs end to end with only these installed,
+# using classical computer vision and no downloaded model weights.
+# ---------------------------------------------------------------------------
+numpy>=1.24
+opencv-contrib-python>=4.8
+Pillow>=10.0
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+
+# ---------------------------------------------------------------------------
+# Recommended - the pipeline detects these at runtime and upgrades to them
+# automatically. Without them it falls back gracefully; nothing breaks.
+# ---------------------------------------------------------------------------
+rembg>=2.0.50          # U^2-Net / IS-Net salient object matting  -> subjects
+pytesseract>=0.3.10    # text recognition inside detected boxes   (needs the
+                       # tesseract-ocr system binary; see README)
+pytoshop>=1.2.1        # layered .psd export
+
+# ---------------------------------------------------------------------------
+# Optional extras - install if you want the strongest possible quality.
+#   easyocr                 CRAFT learned text detector (pulls in torch)
+#   simple-lama-inpainting  LaMa large-mask inpainting for textured backdrops
+#   psd-tools               only needed to verify/read generated PSDs
+# ---------------------------------------------------------------------------
+# easyocr>=1.7.0
+# simple-lama-inpainting>=0.1.0
+# psd-tools>=1.9.0

@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# pipeline output
+output/
+out/
+*.psd
+*-layers.zip
+
+# model weight caches (downloaded on first use)
+.u2net/
+.cache/
+.EasyOCR/
+
+.pytest_cache/
+.coverage
+htmlcov/
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
