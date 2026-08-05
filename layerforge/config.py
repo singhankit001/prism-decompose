@@ -51,7 +51,12 @@ class Config:
     # often defeats OCR but is still visually text).
     text_keep_unrecognised: bool = True
     # Cap on emitted text layers so a noisy image cannot flood the output.
-    max_text_layers: int = 12
+    max_text_layers: int = 10
+    # Max coefficient of variation of glyph heights within one block. Real type
+    # shares a cap height; foliage and texture fragments do not.
+    text_max_height_cv: float = 0.42
+    # Blocks below this canvas coverage need >=3 glyph components to qualify.
+    text_min_coverage: float = 0.0012
 
     # ---- subject / photographic region --------------------------------------
     enable_subject: bool = True

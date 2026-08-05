@@ -298,7 +298,13 @@ def _group_blocks(lines: List[List[_Comp]]) -> List[List[_Comp]]:
 
 
 def _validate(block: Sequence[_Comp], shape: Tuple[int, int], cfg: Config) -> bool:
-    """Reject groups that are not plausibly type."""
+    """Reject groups that are not plausibly type.
+
+    OCR cannot be used as the gate here: Tesseract is optional, and stylised
+    display faces defeat it even when installed. So validation is purely
+    geometric, which means it behaves identically with or without the optional
+    backends.
+    """
     h, w = shape
     x0, y0, x1, y1 = _line_bbox(block)
     bw, bh = x1 - x0, y1 - y0
@@ -317,6 +323,23 @@ def _validate(block: Sequence[_Comp], shape: Tuple[int, int], cfg: Config) -> bo
     # Reject groups that sprawl across most of the canvas in both axes.
     if bw > w * 0.97 and bh > h * 0.60:
         return False
+
+    # Glyph-height consistency. Characters on a line share a cap height, so
+    # their heights cluster tightly. Foliage, confetti and texture fragments
+    # that survive the earlier filters do not — this is what stops leaves in a
+    # photograph being emitted as text layers.
+    if len(block) >= 3:
+        heights = np.array([c.h for c in block], dtype=np.float32)
+        mean_h = float(heights.mean())
+        if mean_h > 1e-6 and float(heights.std()) / mean_h > cfg.text_max_height_cv:
+            return False
+
+    # Small blocks must be built from several glyph-like parts to qualify;
+    # a lone speck is never a word.
+    coverage = ink / float(h * w)
+    if coverage < cfg.text_min_coverage and len(block) < 3:
+        return False
+
     return True
 
 
