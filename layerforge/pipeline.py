@@ -176,10 +176,19 @@ class LayerForge:
         # -- 6. ordering -----------------------------------------------------
         emit("ordering", 0.90, "Resolving depth")
         with timer("ordering"):
+            # Order matters here. strip_occluded subtracts front-to-back and
+            # therefore needs real depths; running it before assign_z left every
+            # layer at z=0, so the subtraction order was arbitrary and layers
+            # kept overlapping pixels (coverage could sum past 100%).
+            ordering.assign_z(image_rgb, result.layers)
+
             content = [l for l in result.layers if l.kind != KIND_BACKGROUND]
             ordering.strip_occluded(content)
+
+            # Stripping changes areas and can empty a layer entirely, so drop
+            # the empties and re-densify z over what actually survived.
             result.layers = [l for l in result.layers
-                             if l.kind == KIND_BACKGROUND or l.area > 0]
+                             if l.kind == KIND_BACKGROUND or not l.is_empty]
             ordering.assign_z(image_rgb, result.layers)
             for layer in result.layers:
                 layer.compute_bbox()

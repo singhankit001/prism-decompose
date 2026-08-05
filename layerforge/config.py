@@ -60,17 +60,21 @@ class Config:
     # Alpha above which a rembg pixel counts as subject.
     subject_alpha_threshold: int = 128
     # Minimum blob area (fraction of canvas) to survive as its own subject.
-    subject_min_area_frac: float = 0.004
+    subject_min_area_frac: float = 0.0022
     # Upper bound on total subject coverage. On busy compositions a saliency
     # threshold can swallow the whole canvas; the classical path re-thresholds
     # upward until it respects this cap, leaving room for graphics and text.
     subject_max_coverage: float = 0.55
+    # Watershed splitting of one oversized silhouette into separate subjects.
+    # Lower peak_ratio finds more cores (more, smaller subjects).
+    subject_split_peak_ratio: float = 0.34
+    subject_max_parts: int = 8
     # GrabCut refinement iterations for the classical fallback path.
     grabcut_iters: int = 4
 
     # ---- graphic / vector element detection ---------------------------------
     enable_graphics: bool = True
-    graphic_min_area_frac: float = 0.0006
+    graphic_min_area_frac: float = 0.00035
     # Colour quantisation level used to find flat-fill graphic regions.
     graphic_quant_colors: int = 12
     # Regions scoring above this on the texture metric are photographic,
@@ -85,7 +89,7 @@ class Config:
     # than a discrete subject, and is labelled accordingly.
     decor_coverage_threshold: float = 0.35
     # Cap on emitted graphic layers (largest kept) to keep output manageable.
-    max_graphic_layers: int = 14
+    max_graphic_layers: int = 20
 
     # ---- background reconstruction -----------------------------------------
     enable_inpaint: bool = True

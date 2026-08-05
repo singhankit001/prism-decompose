@@ -120,21 +120,31 @@ def assign_z(image_rgb: np.ndarray, layers: List[Layer]) -> List[Layer]:
 
 
 def strip_occluded(layers: List[Layer]) -> List[Layer]:
-    """Remove pixels a front layer already owns from the layers behind it.
+    """Remove coverage a nearer layer already owns from the layers behind it.
 
-    Without this the same pixels appear in several layers and the exploded 3D
-    stack shows ghost duplicates. Front-to-back subtraction guarantees a clean
-    partition of the canvas, which is also what makes the exported PSD
-    recomposite to something close to the original.
+    Without this the same pixels appear in several layers, the exploded 3D
+    stack shows ghost duplicates, and per-layer coverage sums past 100%.
+
+    This is proper front-to-back alpha compositing, not a binary subtraction.
+    Masks carry soft, anti-aliased edges; thresholding them at 127 to decide
+    ownership leaves every feathered boundary claimed by two layers at once.
+    Instead each layer keeps only the opacity still unclaimed:
+
+        remaining = 1 - claimed
+        alpha'    = alpha * remaining
+        claimed  += alpha'
+
+    Per pixel the emitted alphas now sum to at most 1 by construction, so the
+    partition is exact and the stack recomposites correctly.
     """
     ordered = sorted(layers, key=lambda l: -l.z)  # front first
     claimed = None
     for layer in ordered:
         if layer.kind == KIND_BACKGROUND:
             continue
+        alpha = layer.mask.astype(np.float32) / 255.0
         if claimed is not None:
-            keep = cv2.bitwise_not(claimed)
-            layer.mask = cv2.bitwise_and(layer.mask, keep)
-        solid = (layer.mask > 127).astype(np.uint8) * 255
-        claimed = solid if claimed is None else cv2.bitwise_or(claimed, solid)
-    return [l for l in layers if l.kind == KIND_BACKGROUND or l.area > 0]
+            alpha = alpha * (1.0 - claimed)
+            layer.mask = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+        claimed = alpha.copy() if claimed is None else np.clip(claimed + alpha, 0.0, 1.0)
+    return [l for l in layers if l.kind == KIND_BACKGROUND or not l.is_empty]

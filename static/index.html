@@ -6,304 +6,421 @@
 <title>LayerForge — 3D Image Decomposition</title>
 <style>
   :root {
-    --bg:        #04050a;
-    --panel:     rgba(14, 18, 30, 0.72);
-    --panel-2:   rgba(20, 26, 42, 0.86);
-    --stroke:    rgba(120, 170, 255, 0.16);
-    --stroke-hi: rgba(120, 220, 255, 0.55);
-    --text:      #e8eefc;
-    --muted:     #8798b8;
-    --cyan:      #49e8ff;
+    --bg:        #04060d;
+    --text:      #eaf0ff;
+    --muted:     #93a4c4;
+    --faint:     #64748b;
+    --cyan:      #4ee6ff;
     --violet:    #a78bfa;
-    --amber:     #ffb865;
+    --amber:     #ffc078;
     --green:     #5eead4;
     --pink:      #f472b6;
-    --radius:    14px;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
     --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+
+    /* ---- glass recipe ------------------------------------------------- */
+    --glass-bg: linear-gradient(150deg,
+                  rgba(255,255,255,.11) 0%,
+                  rgba(255,255,255,.045) 42%,
+                  rgba(140,180,255,.030) 100%);
+    --glass-brd: rgba(255,255,255,.14);
+    --glass-blur: blur(28px) saturate(175%);
+    --glass-shadow:
+        0 20px 60px -12px rgba(0,0,0,.72),
+        0 4px 18px -6px rgba(0,0,0,.5),
+        inset 0 1px 0 rgba(255,255,255,.22),
+        inset 0 -1px 0 rgba(255,255,255,.05),
+        inset 1px 0 0 rgba(255,255,255,.06),
+        inset -1px 0 0 rgba(255,255,255,.06);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   html, body {
-    height: 100%; width: 100%;
+    height: 100%; width: 100%; overflow: hidden;
     background: var(--bg); color: var(--text);
-    font-family: var(--sans); overflow: hidden;
+    font-family: var(--sans);
     -webkit-font-smoothing: antialiased;
   }
 
   #scene { position: fixed; inset: 0; display: block; z-index: 0; }
 
-  /* ambient vignette + aurora wash over the canvas */
+  /* aurora wash + vignette, sits over the canvas */
   .ambient {
     position: fixed; inset: 0; z-index: 1; pointer-events: none;
     background:
-      radial-gradient(1200px 700px at 20% -10%, rgba(73,232,255,.10), transparent 60%),
-      radial-gradient(1000px 800px at 90% 110%, rgba(167,139,250,.12), transparent 60%),
-      radial-gradient(900px 900px at 50% 50%, transparent 35%, rgba(0,0,0,.72) 100%);
+      radial-gradient(1100px 640px at 16% -8%,  rgba(78,230,255,.13), transparent 62%),
+      radial-gradient(980px 760px  at 88% 108%, rgba(167,139,250,.15), transparent 62%),
+      radial-gradient(700px 500px  at 62% 22%,  rgba(244,114,182,.06), transparent 60%),
+      radial-gradient(1200px 1000px at 50% 50%, transparent 30%, rgba(2,3,8,.80) 100%);
   }
-  .scanlines {
-    position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: .35;
-    background: repeating-linear-gradient(
-      to bottom, rgba(255,255,255,.022) 0 1px, transparent 1px 3px);
-    mix-blend-mode: overlay;
+  /* film grain — the detail that stops glass looking like flat plastic */
+  .grain {
+    position: fixed; inset: -200%; z-index: 2; pointer-events: none;
+    opacity: .16; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation: grainShift 7s steps(6) infinite;
+  }
+  @keyframes grainShift {
+    0%,100%{transform:translate(0,0)} 16%{transform:translate(-3%,-2%)}
+    33%{transform:translate(2%,-4%)}  50%{transform:translate(-2%,3%)}
+    66%{transform:translate(3%,2%)}   83%{transform:translate(-3%,1%)}
   }
 
-  /* ---------------- chrome ---------------- */
+  /* ================= glass primitive ================= */
+  .glass {
+    position: relative;
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-brd);
+    box-shadow: var(--glass-shadow);
+    border-radius: 18px;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  /* specular sheen raking across the surface */
+  .glass::before {
+    content:''; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background: linear-gradient(115deg,
+      transparent 18%, rgba(255,255,255,.10) 38%,
+      rgba(255,255,255,.22) 47%, rgba(255,255,255,.06) 56%, transparent 76%);
+    transform: translateX(-120%);
+    transition: transform 1.1s cubic-bezier(.22,.61,.36,1);
+  }
+  .glass:hover::before { transform: translateX(120%); }
+  /* top edge caustic — light catching the rim */
+  .glass::after {
+    content:''; position:absolute; left:12%; right:12%; top:0; height:1px; z-index:-1;
+    background: linear-gradient(90deg, transparent, rgba(180,230,255,.75), transparent);
+    pointer-events:none;
+  }
+
+  /* ================= header ================= */
   header {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 30;
     display: flex; align-items: center; gap: 16px;
-    padding: 16px 22px; pointer-events: none;
+    padding: 18px 24px; pointer-events: none;
   }
-  .brand { display: flex; align-items: center; gap: 11px; pointer-events: auto; }
-  .brand-mark {
-    width: 30px; height: 30px; position: relative; flex: none;
-  }
+  .brand { display: flex; align-items: center; gap: 12px; pointer-events: auto; }
+  .brand-mark { width: 34px; height: 34px; position: relative; flex: none; }
   .brand-mark i {
-    position: absolute; inset: 0; border: 1.5px solid var(--cyan);
-    border-radius: 5px; opacity: .95;
-    animation: markFloat 5s ease-in-out infinite;
+    position: absolute; inset: 0; border-radius: 6px;
+    border: 1.5px solid currentColor;
+    animation: markDrift 6s ease-in-out infinite;
   }
-  .brand-mark i:nth-child(1){ transform: translate(-5px,-5px); border-color: var(--violet); animation-delay: -.7s; }
-  .brand-mark i:nth-child(2){ transform: translate(0,0);       border-color: var(--cyan); }
-  .brand-mark i:nth-child(3){ transform: translate(5px,5px);   border-color: var(--pink); animation-delay: -1.4s; opacity:.75; }
-  @keyframes markFloat {
-    0%,100% { transform: translate(var(--tx,0), var(--ty,0)); }
-    50%     { transform: translate(calc(var(--tx,0px) * 1.7), calc(var(--ty,0px) * 1.7)); }
+  .brand-mark i:nth-child(1){ color: var(--violet); --tx:-6px; --ty:-6px; animation-delay:-.9s; opacity:.8 }
+  .brand-mark i:nth-child(2){ color: var(--cyan);   --tx:0;    --ty:0 }
+  .brand-mark i:nth-child(3){ color: var(--pink);   --tx:6px;  --ty:6px;  animation-delay:-1.8s; opacity:.7 }
+  @keyframes markDrift {
+    0%,100%{ transform: translate(var(--tx),var(--ty)) rotate(0deg) }
+    50%    { transform: translate(calc(var(--tx)*1.9),calc(var(--ty)*1.9)) rotate(6deg) }
   }
-  .brand h1 {
-    font-size: 15px; letter-spacing: .22em; font-weight: 700; text-transform: uppercase;
+  .brand h1 { font-size: 16px; letter-spacing: .24em; font-weight: 700; text-transform: uppercase; }
+  .brand h1 span {
+    background: linear-gradient(92deg, var(--cyan), var(--violet));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .brand h1 span { color: var(--cyan); }
   .brand small {
     display:block; font-family: var(--mono); font-size: 9.5px;
-    letter-spacing: .16em; color: var(--muted); margin-top: 2px; text-transform: uppercase;
+    letter-spacing: .18em; color: var(--faint); margin-top: 3px; text-transform: uppercase;
   }
   .head-stats {
-    margin-left: auto; display: flex; gap: 8px; pointer-events: auto; flex-wrap: wrap;
-    justify-content: flex-end;
+    margin-left: auto; display: flex; gap: 8px; pointer-events: auto;
+    flex-wrap: wrap; justify-content: flex-end;
   }
   .chip {
-    font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
-    padding: 6px 11px; border-radius: 999px; color: var(--muted);
-    background: var(--panel); border: 1px solid var(--stroke);
-    backdrop-filter: blur(14px); white-space: nowrap;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .07em;
+    padding: 7px 13px; border-radius: 999px; color: var(--muted);
+    background: rgba(255,255,255,.05);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255,255,255,.10);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 6px 20px -8px rgba(0,0,0,.6);
+    white-space: nowrap;
   }
   .chip b { color: var(--text); font-weight: 600; }
   .chip.good b { color: var(--green); }
   .chip.warn b { color: var(--amber); }
 
-  /* ---------------- dropzone ---------------- */
+  /* ================= landing ================= */
   #drop {
     position: fixed; inset: 0; z-index: 40;
     display: grid; place-items: center;
-    background: radial-gradient(900px 600px at 50% 45%, rgba(10,14,26,.86), rgba(4,5,10,.96));
-    backdrop-filter: blur(3px);
-    transition: opacity .55s ease, visibility .55s;
+    transition: opacity .7s cubic-bezier(.4,0,.2,1), visibility .7s;
   }
   #drop.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
-  .drop-card {
-    width: min(560px, 88vw); padding: 46px 40px; text-align: center;
-    border-radius: 22px; position: relative;
-    background: linear-gradient(180deg, rgba(20,26,44,.85), rgba(10,14,26,.85));
-    border: 1px solid var(--stroke); overflow: hidden;
-  }
-  .drop-card::before {
-    content:''; position: absolute; inset: -2px; border-radius: 24px; z-index: -1;
-    background: conic-gradient(from 0deg, var(--cyan), var(--violet), var(--pink), var(--amber), var(--cyan));
-    filter: blur(14px); opacity: .28; animation: spin 9s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #drop.dragging .drop-card::before { opacity: .65; }
-  .drop-ico { font-size: 40px; margin-bottom: 14px; filter: drop-shadow(0 0 14px rgba(73,232,255,.5)); }
-  .drop-card h2 { font-size: 22px; font-weight: 650; letter-spacing: -.01em; margin-bottom: 8px; }
-  .drop-card p  { font-size: 13.5px; color: var(--muted); line-height: 1.65; margin-bottom: 22px; }
-  .btn {
-    font-family: var(--sans); font-size: 13px; font-weight: 600; letter-spacing: .02em;
-    padding: 11px 22px; border-radius: 10px; cursor: pointer; color: #04121a;
-    background: linear-gradient(135deg, var(--cyan), #7dd3fc);
-    border: none; transition: transform .18s ease, box-shadow .18s ease;
-    box-shadow: 0 6px 22px rgba(73,232,255,.28);
-  }
-  .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(73,232,255,.4); }
-  .btn.ghost {
-    background: transparent; color: var(--text); border: 1px solid var(--stroke);
-    box-shadow: none;
-  }
-  .btn.ghost:hover { border-color: var(--stroke-hi); background: rgba(73,232,255,.06); }
-  .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
-  .samples { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
-  .samples span { font-size: 11px; color: var(--muted); width: 100%; margin-bottom: 2px; }
-  .sample {
-    font-family: var(--mono); font-size: 10.5px; padding: 6px 12px; border-radius: 8px;
-    background: rgba(255,255,255,.04); border: 1px solid var(--stroke);
-    color: var(--muted); cursor: pointer; transition: all .18s;
-  }
-  .sample:hover { color: var(--cyan); border-color: var(--stroke-hi); background: rgba(73,232,255,.07); }
 
-  /* ---------------- progress ---------------- */
-  #progress {
-    position: fixed; inset: 0; z-index: 45; display: none; place-items: center;
-    background: radial-gradient(900px 600px at 50% 50%, rgba(8,11,20,.82), rgba(4,5,10,.95));
-    backdrop-filter: blur(6px);
+  .hero { width: min(620px, 90vw); text-align: center; padding: 52px 46px 42px; border-radius: 26px; }
+  .hero-eyebrow {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .34em;
+    text-transform: uppercase; color: var(--cyan); margin-bottom: 20px; opacity: .9;
   }
-  #progress.on { display: grid; }
-  .prog-card { width: min(430px, 88vw); }
+  .hero h2 {
+    font-size: 34px; font-weight: 640; letter-spacing: -.025em;
+    line-height: 1.15; margin-bottom: 14px;
+  }
+  .hero h2 em {
+    font-style: normal;
+    background: linear-gradient(96deg, var(--cyan) 0%, var(--violet) 55%, var(--pink) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p {
+    font-size: 14.5px; color: var(--muted); line-height: 1.72;
+    max-width: 44ch; margin: 0 auto 30px;
+  }
+  .kinds { display:flex; gap:7px; justify-content:center; flex-wrap:wrap; margin-bottom: 30px; }
+  .kpill {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+    padding: 5px 11px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04);
+    display: flex; align-items: center; gap: 6px; color: var(--muted);
+  }
+  .kpill i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  .btn {
+    position: relative; font-family: var(--sans); font-size: 14px; font-weight: 600;
+    letter-spacing: .01em; padding: 14px 32px; border-radius: 13px; cursor: pointer;
+    color: #041018; border: none; overflow: hidden;
+    background: linear-gradient(135deg, #7df2ff 0%, #4ee6ff 46%, #8b9dfb 100%);
+    box-shadow: 0 10px 34px -8px rgba(78,230,255,.62),
+                inset 0 1px 0 rgba(255,255,255,.6);
+    transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s;
+  }
+  .btn:hover { transform: translateY(-3px); box-shadow: 0 16px 44px -8px rgba(78,230,255,.78), inset 0 1px 0 rgba(255,255,255,.6); }
+  .btn:active { transform: translateY(-1px); }
+  .btn::after {
+    content:''; position:absolute; inset:0;
+    background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.55) 50%, transparent 65%);
+    transform: translateX(-130%);
+  }
+  .btn:hover::after { transform: translateX(130%); transition: transform .8s ease; }
+
+  .samples { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 26px; }
+  .samples > span {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--faint); width: 100%; margin-bottom: 4px;
+  }
+  .sample {
+    font-family: var(--mono); font-size: 10.5px; padding: 8px 15px; border-radius: 9px;
+    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.10);
+    color: var(--muted); cursor: pointer; transition: all .22s;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+  }
+  .sample:hover {
+    color: var(--cyan); border-color: rgba(78,230,255,.45);
+    background: rgba(78,230,255,.10); transform: translateY(-2px);
+  }
+
+  /* drag state: the whole viewport reacts */
+  .dragveil {
+    position: fixed; inset: 0; z-index: 39; pointer-events: none; opacity: 0;
+    transition: opacity .3s ease;
+    background: radial-gradient(900px 700px at 50% 50%, rgba(78,230,255,.10), transparent 65%);
+    border: 2px dashed rgba(78,230,255,0);
+  }
+  body.dragging .dragveil { opacity: 1; border-color: rgba(78,230,255,.42); }
+  body.dragging .hero { transform: scale(1.03); border-color: rgba(78,230,255,.5); }
+  .hero { transition: transform .35s cubic-bezier(.34,1.56,.64,1), border-color .3s; }
+
+  /* ================= progress HUD ================= */
+  #progress {
+    position: fixed; left: 50%; bottom: 46px; transform: translate(-50%, 30px);
+    z-index: 45; width: min(440px, 90vw); padding: 22px 24px; border-radius: 20px;
+    opacity: 0; visibility: hidden;
+    transition: opacity .5s ease, transform .5s cubic-bezier(.34,1.4,.64,1), visibility .5s;
+  }
+  #progress.on { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+  .prog-head {
+    display:flex; align-items:center; gap:10px; margin-bottom: 16px;
+  }
   .prog-title {
-    font-family: var(--mono); font-size: 11px; letter-spacing: .22em;
-    text-transform: uppercase; color: var(--cyan); text-align: center; margin-bottom: 22px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--cyan);
+  }
+  .prog-file {
+    margin-left:auto; font-family: var(--mono); font-size: 9.5px; color: var(--faint);
+    max-width: 45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .stage-row {
-    display: flex; align-items: center; gap: 12px; padding: 9px 14px; margin-bottom: 5px;
-    border-radius: 10px; border: 1px solid transparent; transition: all .3s ease;
+    display: flex; align-items: center; gap: 11px; padding: 6px 10px; margin-bottom: 2px;
+    border-radius: 9px; border: 1px solid transparent; transition: all .35s ease;
   }
   .stage-row .dot {
-    width: 7px; height: 7px; border-radius: 50%; flex: none;
-    background: rgba(255,255,255,.14); transition: all .3s;
+    width: 6px; height: 6px; border-radius: 50%; flex: none;
+    background: rgba(255,255,255,.16); transition: all .35s;
   }
-  .stage-row .nm { font-size: 13px; color: var(--muted); transition: color .3s; }
-  .stage-row .tick { margin-left: auto; font-size: 12px; color: var(--green); opacity: 0; transition: opacity .3s; }
-  .stage-row.active {
-    background: rgba(73,232,255,.07); border-color: rgba(73,232,255,.22);
-  }
-  .stage-row.active .dot {
-    background: var(--cyan); box-shadow: 0 0 12px var(--cyan);
-    animation: pulse 1.1s ease-in-out infinite;
-  }
+  .stage-row .nm { font-size: 12.5px; color: var(--faint); transition: color .35s; }
+  .stage-row .tick { margin-left: auto; font-size: 11px; color: var(--green); opacity: 0; transition: opacity .35s; }
+  .stage-row.active { background: rgba(78,230,255,.09); border-color: rgba(78,230,255,.24); }
+  .stage-row.active .dot { background: var(--cyan); box-shadow: 0 0 14px var(--cyan); animation: pulse 1.2s ease-in-out infinite; }
   .stage-row.active .nm { color: var(--text); }
-  .stage-row.done .dot { background: var(--green); }
-  .stage-row.done .nm  { color: rgba(232,238,252,.62); }
+  .stage-row.done .dot { background: var(--green); box-shadow: 0 0 8px rgba(94,234,212,.6); }
+  .stage-row.done .nm { color: rgba(234,240,255,.55); }
   .stage-row.done .tick { opacity: 1; }
-  @keyframes pulse { 50% { transform: scale(1.55); opacity: .55; } }
-  .bar { height: 2px; background: rgba(255,255,255,.07); border-radius: 2px; margin-top: 20px; overflow: hidden; }
+  @keyframes pulse { 50% { transform: scale(1.7); opacity: .5; } }
+  .bar { height: 2px; background: rgba(255,255,255,.08); border-radius: 2px; margin-top: 16px; overflow: hidden; }
   .bar i {
     display: block; height: 100%; width: 0%; border-radius: 2px;
-    background: linear-gradient(90deg, var(--cyan), var(--violet));
-    box-shadow: 0 0 12px rgba(73,232,255,.7); transition: width .45s cubic-bezier(.4,0,.2,1);
+    background: linear-gradient(90deg, var(--cyan), var(--violet), var(--pink));
+    box-shadow: 0 0 16px rgba(78,230,255,.85);
+    transition: width .5s cubic-bezier(.4,0,.2,1);
   }
-  .prog-pct {
-    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
-    text-align: center; margin-top: 10px; letter-spacing: .12em;
-  }
+  .prog-pct { font-family: var(--mono); font-size: 10px; color: var(--faint); text-align: center; margin-top: 9px; letter-spacing: .14em; }
 
-  /* ---------------- side panel ---------------- */
+  /* ================= side panel ================= */
   aside {
-    position: fixed; top: 74px; right: 16px; bottom: 104px; width: 288px; z-index: 20;
-    display: flex; flex-direction: column; gap: 10px;
-    opacity: 0; transform: translateX(24px); pointer-events: none;
-    transition: opacity .6s ease, transform .6s ease;
+    position: fixed; top: 82px; right: 18px; bottom: 112px; width: 300px; z-index: 25;
+    display: flex; flex-direction: column; gap: 11px;
+    opacity: 0; transform: translateX(28px); pointer-events: none;
+    transition: opacity .7s ease, transform .7s cubic-bezier(.34,1.3,.64,1);
   }
   aside.on { opacity: 1; transform: none; pointer-events: auto; }
-  .card {
-    background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--radius);
-    backdrop-filter: blur(18px); overflow: hidden;
-  }
   .card-h {
-    display: flex; align-items: center; gap: 8px; padding: 11px 14px;
-    border-bottom: 1px solid var(--stroke);
-    font-family: var(--mono); font-size: 10px; letter-spacing: .18em;
-    text-transform: uppercase; color: var(--muted);
+    display: flex; align-items: center; gap: 8px; padding: 12px 15px;
+    border-bottom: 1px solid rgba(255,255,255,.09);
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--faint);
   }
-  .card-h b { color: var(--cyan); font-weight: 600; }
+  .card-h b {
+    background: linear-gradient(92deg, var(--cyan), var(--violet));
+    -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 700;
+  }
   .card-h .count { margin-left: auto; color: var(--text); }
-  #layerList { overflow-y: auto; flex: 1; padding: 6px; }
-  #layerList::-webkit-scrollbar { width: 5px; }
-  #layerList::-webkit-scrollbar-thumb { background: rgba(120,170,255,.2); border-radius: 4px; }
+  #layerList { overflow-y: auto; flex: 1; padding: 7px; }
+  #layerList::-webkit-scrollbar { width: 4px; }
+  #layerList::-webkit-scrollbar-thumb { background: rgba(120,190,255,.26); border-radius: 4px; }
 
   .layer {
-    display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 9px;
-    cursor: pointer; border: 1px solid transparent; transition: all .2s;
+    display: flex; align-items: center; gap: 10px; padding: 8px 9px; border-radius: 10px;
+    cursor: pointer; border: 1px solid transparent; transition: all .22s;
   }
-  .layer:hover { background: rgba(73,232,255,.07); border-color: rgba(73,232,255,.2); }
-  .layer.sel { background: rgba(73,232,255,.12); border-color: var(--stroke-hi); }
-  .layer.off { opacity: .32; }
+  .layer:hover {
+    background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.14);
+    transform: translateX(-3px);
+  }
+  .layer.sel { background: rgba(78,230,255,.13); border-color: rgba(78,230,255,.4); }
   .thumb {
-    width: 34px; height: 34px; border-radius: 6px; flex: none; object-fit: contain;
-    background: repeating-conic-gradient(rgba(255,255,255,.05) 0 25%, transparent 0 50%) 0 0/8px 8px;
-    border: 1px solid rgba(255,255,255,.07);
+    width: 36px; height: 36px; border-radius: 7px; flex: none; object-fit: contain;
+    background: repeating-conic-gradient(rgba(255,255,255,.06) 0 25%, transparent 0 50%) 0 0/8px 8px;
+    border: 1px solid rgba(255,255,255,.09);
   }
   .layer-meta { min-width: 0; flex: 1; }
-  .layer-name {
-    font-size: 11.5px; font-weight: 550; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-  }
+  .layer-name { font-size: 11.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .layer-sub {
-    font-family: var(--mono); font-size: 9px; color: var(--muted);
-    letter-spacing: .06em; margin-top: 2px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--mono); font-size: 8.5px; color: var(--faint);
+    letter-spacing: .05em; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .kind {
-    font-family: var(--mono); font-size: 8px; letter-spacing: .1em; text-transform: uppercase;
-    padding: 2px 6px; border-radius: 4px; flex: none;
+    font-family: var(--mono); font-size: 7.5px; letter-spacing: .11em; text-transform: uppercase;
+    padding: 3px 6px; border-radius: 4px; flex: none; border: 1px solid currentColor;
   }
-  .k-background { background: rgba(148,163,184,.16); color: #cbd5e1; }
-  .k-decor      { background: rgba(251,146,60,.16);  color: var(--amber); }
-  .k-subject    { background: rgba(73,232,255,.16);  color: var(--cyan); }
-  .k-graphic    { background: rgba(167,139,250,.18); color: var(--violet); }
-  .k-text       { background: rgba(244,114,182,.16); color: var(--pink); }
-  .k-foreground { background: rgba(94,234,212,.16);  color: var(--green); }
+  .k-background { color: #b6c2d4; } .k-decor { color: var(--amber); }
+  .k-subject    { color: var(--cyan); } .k-graphic { color: var(--violet); }
+  .k-text       { color: var(--pink); } .k-foreground { color: var(--green); }
 
-  .info { padding: 11px 14px; display: grid; gap: 7px; }
+  .info { padding: 12px 15px; display: grid; gap: 8px; }
   .info div { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
-  .info span:first-child { color: var(--muted); }
-  .info span:last-child  { font-family: var(--mono); font-size: 10px; text-align: right; }
+  .info span:first-child { color: var(--faint); }
+  .info span:last-child { font-family: var(--mono); font-size: 10px; text-align: right; }
 
-  /* ---------------- transport ---------------- */
+  /* ================= transport ================= */
   footer {
-    position: fixed; bottom: 16px; left: 50%; transform: translate(-50%, 24px); z-index: 20;
-    display: flex; align-items: center; gap: 14px; padding: 11px 16px;
-    background: var(--panel-2); border: 1px solid var(--stroke); border-radius: 16px;
-    backdrop-filter: blur(20px); opacity: 0; pointer-events: none;
-    transition: opacity .6s ease .1s, transform .6s ease .1s;
-    max-width: calc(100vw - 32px); flex-wrap: wrap; justify-content: center;
+    position: fixed; bottom: 18px; left: 50%; transform: translate(-50%, 26px); z-index: 25;
+    display: flex; align-items: center; gap: 15px; padding: 12px 18px; border-radius: 17px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .7s ease .1s, transform .7s cubic-bezier(.34,1.3,.64,1) .1s;
+    max-width: calc(100vw - 36px); flex-wrap: wrap; justify-content: center;
   }
   footer.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
-  .ctl { display: flex; align-items: center; gap: 9px; }
+  .ctl { display: flex; align-items: center; gap: 10px; }
   .ctl label {
-    font-family: var(--mono); font-size: 9px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--muted); white-space: nowrap;
+    font-family: var(--mono); font-size: 8.5px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--faint); white-space: nowrap;
   }
   input[type=range] {
-    -webkit-appearance: none; appearance: none; width: 118px; height: 3px;
-    background: rgba(255,255,255,.12); border-radius: 3px; outline: none; cursor: pointer;
+    -webkit-appearance: none; appearance: none; width: 112px; height: 3px;
+    background: rgba(255,255,255,.14); border-radius: 3px; outline: none; cursor: pointer;
   }
   input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
-    background: var(--cyan); box-shadow: 0 0 10px rgba(73,232,255,.75); cursor: grab;
+    background: linear-gradient(135deg,#9df5ff,var(--cyan));
+    box-shadow: 0 0 12px rgba(78,230,255,.85), inset 0 1px 0 rgba(255,255,255,.7);
   }
   input[type=range]::-moz-range-thumb {
     width: 13px; height: 13px; border-radius: 50%; border: none;
-    background: var(--cyan); box-shadow: 0 0 10px rgba(73,232,255,.75); cursor: grab;
+    background: var(--cyan); box-shadow: 0 0 12px rgba(78,230,255,.85);
   }
   .icon-btn {
-    width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
-    background: rgba(255,255,255,.04); border: 1px solid var(--stroke);
-    color: var(--muted); cursor: pointer; font-size: 14px; transition: all .18s;
+    position: relative;
+    width: 40px; height: 40px; border-radius: 12px;
+    display: grid; place-items: center;
+    background: linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.025));
+    border: 1px solid rgba(255,255,255,.12);
+    color: var(--muted); cursor: pointer; overflow: visible;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.20),
+                inset 0 -1px 0 rgba(0,0,0,.28),
+                0 4px 14px -4px rgba(0,0,0,.55);
+    transition: color .2s, border-color .2s, background .2s,
+                transform .24s cubic-bezier(.34,1.56,.64,1), box-shadow .24s;
   }
-  .icon-btn:hover { color: var(--cyan); border-color: var(--stroke-hi); background: rgba(73,232,255,.08); }
-  .icon-btn.on { color: var(--cyan); border-color: var(--stroke-hi); background: rgba(73,232,255,.14); }
-  .divider { width: 1px; height: 24px; background: var(--stroke); }
+  .icon-btn svg { width: 17px; height: 17px; stroke: currentColor; fill: none;
+                  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-btn:hover {
+    color: var(--cyan); border-color: rgba(78,230,255,.55);
+    background: linear-gradient(160deg, rgba(78,230,255,.20), rgba(78,230,255,.06));
+    transform: translateY(-3px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.28),
+                0 10px 24px -6px rgba(78,230,255,.45);
+  }
+  .icon-btn:active { transform: translateY(-1px) scale(.94); }
+  .icon-btn.on {
+    color: #06131b; border-color: rgba(78,230,255,.75);
+    background: linear-gradient(160deg, #9df5ff, var(--cyan));
+    box-shadow: 0 0 22px -2px rgba(78,230,255,.75), inset 0 1px 0 rgba(255,255,255,.65);
+  }
+  /* ripple confirmation on press */
+  .icon-btn::after {
+    content:''; position:absolute; inset:-1px; border-radius:12px; pointer-events:none;
+    border: 1px solid var(--cyan); opacity: 0; transform: scale(1);
+  }
+  .icon-btn.ping::after { animation: ping .55s cubic-bezier(.2,.7,.3,1); }
+  @keyframes ping {
+    0%   { opacity:.85; transform: scale(1); }
+    100% { opacity:0;   transform: scale(1.55); }
+  }
+  /* tooltip */
+  .icon-btn[data-tip]::before {
+    content: attr(data-tip); position: absolute; bottom: calc(100% + 11px); left: 50%;
+    transform: translateX(-50%) translateY(5px);
+    font-family: var(--mono); font-size: 9px; letter-spacing: .13em; text-transform: uppercase;
+    white-space: nowrap; padding: 6px 10px; border-radius: 7px; color: var(--text);
+    background: rgba(12,18,32,.94); border: 1px solid rgba(255,255,255,.13);
+    box-shadow: 0 8px 22px -6px rgba(0,0,0,.75);
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  }
+  .icon-btn:hover::before { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .divider { width: 1px; height: 26px; background: linear-gradient(180deg, transparent, rgba(255,255,255,.18), transparent); }
 
   .toast {
-    position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%) translateY(12px);
-    z-index: 60; padding: 10px 18px; border-radius: 10px; font-size: 12.5px;
-    background: var(--panel-2); border: 1px solid var(--stroke); backdrop-filter: blur(16px);
-    opacity: 0; transition: all .3s ease; pointer-events: none; max-width: 80vw; text-align: center;
+    position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%) translateY(14px);
+    z-index: 60; padding: 12px 20px; border-radius: 12px; font-size: 12.5px;
+    opacity: 0; transition: all .35s ease; pointer-events: none; max-width: 80vw; text-align: center;
   }
   .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
-  .toast.err { border-color: rgba(244,114,182,.5); color: #fecdd3; }
+  .toast.err { border-color: rgba(244,114,182,.5) !important; color: #fecdd3; }
 
   .hint {
-    position: fixed; left: 22px; bottom: 20px; z-index: 20;
-    font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; color: rgba(135,152,184,.55);
-    line-height: 1.9; opacity: 0; transition: opacity .6s ease .3s; pointer-events: none;
+    position: fixed; left: 24px; bottom: 22px; z-index: 25;
+    font-family: var(--mono); font-size: 9px; letter-spacing: .13em; color: rgba(100,116,139,.62);
+    line-height: 2; opacity: 0; transition: opacity .7s ease .3s; pointer-events: none;
   }
   .hint.on { opacity: 1; }
 
-  @media (max-width: 860px) {
-    aside { display: none; }
-    .head-stats { display: none; }
-    .hint { display: none; }
+  @media (max-width: 900px) {
+    aside, .head-stats, .hint { display: none; }
+    .hero { padding: 40px 26px 34px; }
+    .hero h2 { font-size: 26px; }
   }
 </style>
 </head>
@@ -311,13 +428,12 @@
 
 <canvas id="scene"></canvas>
 <div class="ambient"></div>
-<div class="scanlines"></div>
+<div class="grain"></div>
+<div class="dragveil"></div>
 
 <header>
   <div class="brand">
-    <div class="brand-mark">
-      <i style="--tx:-5px;--ty:-5px"></i><i></i><i style="--tx:5px;--ty:5px"></i>
-    </div>
+    <div class="brand-mark"><i></i><i></i><i></i></div>
     <div>
       <h1>Layer<span>Forge</span></h1>
       <small id="tagline">image → layer decomposition</small>
@@ -327,63 +443,70 @@
 </header>
 
 <div id="drop">
-  <div class="drop-card">
-    <div class="drop-ico">◳</div>
-    <h2>Drop an image to decompose</h2>
-    <p>Any poster, advert or social creative. LayerForge separates it into
-       background, subjects, graphics and text — then rebuilds the stack in 3D.</p>
+  <div class="hero glass">
+    <div class="hero-eyebrow">Image Decomposition Engine</div>
+    <h2>Take any creative apart,<br><em>layer by layer.</em></h2>
+    <p>Drop in a poster, advert or social creative. LayerForge separates the
+       background plate, subjects, graphics and type — then rebuilds the stack
+       in three dimensions.</p>
+    <div class="kinds">
+      <div class="kpill" style="color:#b6c2d4"><i></i>Background</div>
+      <div class="kpill" style="color:var(--cyan)"><i></i>Subject</div>
+      <div class="kpill" style="color:var(--violet)"><i></i>Graphic</div>
+      <div class="kpill" style="color:var(--pink)"><i></i>Text</div>
+    </div>
     <button class="btn" id="pick">Choose image</button>
     <input type="file" id="file" accept="image/*" hidden />
     <div class="samples" id="samples"><span>or try a sample</span></div>
   </div>
 </div>
 
-<div id="progress">
-  <div class="prog-card">
-    <div class="prog-title" id="progTitle">Decomposing</div>
-    <div id="stages"></div>
-    <div class="bar"><i id="bar"></i></div>
-    <div class="prog-pct" id="pct">0%</div>
+<div id="progress" class="glass">
+  <div class="prog-head">
+    <div class="prog-title">Decomposing</div>
+    <div class="prog-file" id="progFile"></div>
   </div>
+  <div id="stages"></div>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="prog-pct" id="pct">0%</div>
 </div>
 
 <aside id="panel">
-  <div class="card" style="display:flex;flex-direction:column;min-height:0;flex:1">
+  <div class="glass" style="display:flex;flex-direction:column;min-height:0;flex:1">
     <div class="card-h"><b>◆</b> Layers <span class="count" id="lcount">0</span></div>
     <div id="layerList"></div>
   </div>
-  <div class="card">
+  <div class="glass">
     <div class="card-h"><b>◆</b> Inspector</div>
-    <div class="info" id="inspector">
-      <div><span>Selection</span><span>none</span></div>
-    </div>
+    <div class="info" id="inspector"><div><span>Selection</span><span>none</span></div></div>
   </div>
 </aside>
 
-<footer id="transport">
-  <div class="ctl">
-    <label>Explode</label>
-    <input type="range" id="explode" min="0" max="100" value="45" />
+<footer id="transport" class="glass">
+  <div class="ctl"><label>Explode</label><input type="range" id="explode" min="0" max="100" value="45" /></div>
+  <div class="divider"></div>
+  <div class="ctl"><label>Spread</label><input type="range" id="spread" min="0" max="100" value="0" /></div>
+  <div class="divider"></div>
+  <div class="icon-btn on" id="rotate" data-tip="Auto-orbit">
+    <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1-6.4 2.6"/><path d="M5.6 2.4v3.6h3.6"/></svg>
+  </div>
+  <div class="icon-btn" id="reset" data-tip="Reset view">
+    <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+  </div>
+  <div class="icon-btn" id="flat" data-tip="Flatten">
+    <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9.5h17M3.5 15h17"/></svg>
   </div>
   <div class="divider"></div>
-  <div class="ctl">
-    <label>Spread</label>
-    <input type="range" id="spread" min="0" max="100" value="0" />
+  <div class="icon-btn" id="download" data-tip="Download ZIP">
+    <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7.5 10.5 12 15l4.5-4.5"/><path d="M4 19h16"/></svg>
   </div>
-  <div class="divider"></div>
-  <div class="icon-btn on" id="rotate" title="Auto-orbit">◑</div>
-  <div class="icon-btn" id="reset" title="Reset view">⟲</div>
-  <div class="icon-btn" id="flat" title="Flatten to original">▣</div>
-  <div class="divider"></div>
-  <div class="icon-btn" id="download" title="Download layer bundle (ZIP)">⤓</div>
-  <div class="icon-btn" id="again" title="New image">＋</div>
+  <div class="icon-btn" id="again" data-tip="New image">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+  </div>
 </footer>
 
-<div class="hint" id="hint">
-  DRAG — ORBIT<br>SCROLL — ZOOM<br>CLICK LAYER — FOCUS
-</div>
-
-<div class="toast" id="toast"></div>
+<div class="hint" id="hint">DRAG — ORBIT<br>SCROLL — ZOOM<br>CLICK LAYER — FOCUS</div>
+<div class="toast glass" id="toast"></div>
 
 <script type="importmap">
 {
@@ -402,107 +525,380 @@ import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
 
-/* =========================================================================
-   tiny tween helper — avoids a second CDN dependency
-   ========================================================================= */
+/* ========================================================================
+   tween helper
+   ======================================================================== */
 const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
 const easeInOut    = t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;
+const easeOutBack  = t => 1 + 2.2*Math.pow(t-1,3) + 1.2*Math.pow(t-1,2);
 const tweens = [];
-function tween(from, to, ms, onUpdate, ease = easeOutCubic, onDone) {
-  const t0 = performance.now();
-  tweens.push({ t0, ms, from, to, onUpdate, ease, onDone });
+function tween(from, to, ms, onUpdate, ease = easeOutCubic, onDone, delay = 0, tag = null) {
+  tweens.push({ t0: performance.now() + delay, ms, from, to, onUpdate, ease, onDone, tag });
+}
+/** Drop in-flight tweens by tag — used so a running camera move never fights
+ *  the user's own orbit or zoom input. */
+function cancelTweens(tag) {
+  for (let i = tweens.length - 1; i >= 0; i--) if (tweens[i].tag === tag) tweens.splice(i, 1);
+}
+/** Camera moves are always tagged so user input can cancel them. */
+function camTween(from, to, ms, onUpdate, ease = easeInOut, onDone, delay = 0) {
+  tween(from, to, ms, onUpdate, ease, onDone, delay, 'cam');
 }
 function stepTweens(now) {
   for (let i = tweens.length - 1; i >= 0; i--) {
     const tw = tweens[i];
-    let p = Math.min((now - tw.t0) / tw.ms, 1);
+    if (now < tw.t0) continue;
+    const p = Math.min((now - tw.t0) / tw.ms, 1);
     tw.onUpdate(tw.from + (tw.to - tw.from) * tw.ease(p));
     if (p >= 1) { tweens.splice(i, 1); tw.onDone && tw.onDone(); }
   }
 }
 
-/* =========================================================================
-   scene bootstrap
-   ========================================================================= */
+/* ========================================================================
+   renderer / scene
+   ======================================================================== */
 const canvas   = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.06;
+renderer.toneMappingExposure = 1.1;
 
 const scene  = new THREE.Scene();
-scene.fog    = new THREE.FogExp2(0x04050a, 0.021);
+scene.fog    = new THREE.FogExp2(0x04060d, 0.019);
 
-const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.1, 400);
+const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.1, 500);
 camera.position.set(0, 0, 46);
 
 const controls = new OrbitControls(camera, canvas);
-controls.enableDamping  = true;
-controls.dampingFactor  = 0.055;
-controls.rotateSpeed    = 0.62;
-controls.minDistance    = 6;
-controls.maxDistance    = 130;
+controls.enableDamping = true;
+controls.dampingFactor = 0.075;
+controls.rotateSpeed   = 0.75;
+controls.zoomSpeed     = 1.15;
+controls.panSpeed      = 0.75;
+controls.screenSpacePanning = true;
+controls.minDistance   = 5;
+controls.maxDistance   = 160;
+// Keep the camera out of the poles: orbiting past vertical flips the stack
+// and makes the controls feel like they have lost their reference frame.
+controls.minPolarAngle = 0.16;
+controls.maxPolarAngle = Math.PI - 0.16;
 controls.autoRotate      = true;
-controls.autoRotateSpeed = 0.55;
+controls.autoRotateSpeed = 0.5;
+controls.enabled = false;                 // locked until a result exists
 
-/* lighting: mostly for the frame meshes, planes are unlit by design so the
-   source pixels are shown faithfully rather than re-shaded */
-scene.add(new THREE.AmbientLight(0xffffff, 1.1));
-const key = new THREE.DirectionalLight(0x9fd8ff, 1.0); key.position.set(6, 8, 14); scene.add(key);
-const rim = new THREE.PointLight(0xa78bfa, 90, 90);    rim.position.set(-14, -6, -22); scene.add(rim);
-const rim2 = new THREE.PointLight(0x49e8ff, 70, 90);   rim2.position.set(16, 10, -16); scene.add(rim2);
+// The moment the user grabs the scene, any scripted camera move must yield —
+// otherwise an in-flight reveal/focus tween keeps overwriting position and
+// zoom and drag feel like they are fighting back.
+controls.addEventListener('start', () => {
+  cancelTweens('cam');
+  if (controls.autoRotate) {
+    controls.autoRotate = false;
+    const btn = document.getElementById('rotate');
+    if (btn) btn.classList.remove('on');
+  }
+});
+// Wheel zoom does not emit 'start' on every browser; cancel there as well.
+canvas.addEventListener('wheel', () => cancelTweens('cam'), { passive: true });
 
-/* ---- starfield ---------------------------------------------------------- */
+scene.add(new THREE.AmbientLight(0xffffff, 1.15));
+const key  = new THREE.DirectionalLight(0xaadcff, 1.0); key.position.set(6, 9, 15); scene.add(key);
+const rimA = new THREE.PointLight(0xa78bfa, 110, 110);  rimA.position.set(-16,-7,-24); scene.add(rimA);
+const rimB = new THREE.PointLight(0x4ee6ff, 90, 110);   rimB.position.set(18, 11,-18); scene.add(rimB);
+
+/* ---- starfield ---- */
 function makeStars(count, spread, size, color, opacity) {
   const pos = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    pos[i*3+0] = (Math.random() - .5) * spread;
-    pos[i*3+1] = (Math.random() - .5) * spread;
-    pos[i*3+2] = (Math.random() - .5) * spread - 20;
+    pos[i*3]   = (Math.random()-.5) * spread;
+    pos[i*3+1] = (Math.random()-.5) * spread;
+    pos[i*3+2] = (Math.random()-.5) * spread - 20;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({
-    size, color, transparent: true, opacity,
-    depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true
-  });
-  return new THREE.Points(geo, mat);
+  return new THREE.Points(geo, new THREE.PointsMaterial({
+    size, color, transparent: true, opacity, depthWrite: false,
+    blending: THREE.AdditiveBlending, sizeAttenuation: true
+  }));
 }
-const starsFar  = makeStars(2600, 260, 0.30, 0x8fb6ff, 0.55);
-const starsNear = makeStars(700,  150, 0.55, 0x49e8ff, 0.40);
+const starsFar  = makeStars(3000, 280, 0.30, 0x9fc4ff, 0.5);
+const starsNear = makeStars(800,  160, 0.55, 0x4ee6ff, 0.38);
 scene.add(starsFar, starsNear);
 
-/* ---- horizon grid ------------------------------------------------------- */
-const grid = new THREE.GridHelper(180, 60, 0x1b3a5c, 0x122436);
-grid.material.transparent = true; grid.material.opacity = 0.24;
-grid.position.y = -22;
+const grid = new THREE.GridHelper(200, 64, 0x1d4361, 0x0f2233);
+grid.material.transparent = true; grid.material.opacity = 0.2;
+grid.position.y = -24;
 scene.add(grid);
 
-/* ---- post-processing ---------------------------------------------------- */
+/* ---- post ---- */
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(
-  new THREE.Vector2(innerWidth, innerHeight), 0.52, 0.72, 0.86);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.60, 0.75, 0.82);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
-/* =========================================================================
-   layer stack
-   ========================================================================= */
+/* ========================================================================
+   HERO SCENE — procedurally drawn "layers" so the landing page shows the
+   product rather than an empty void. Disposed the moment a real job starts.
+   ======================================================================== */
+const heroGroup = new THREE.Group();
+scene.add(heroGroup);
+let heroPlanes = [];
+
+/** Draw an abstract poster layer to a canvas and return it as a texture. */
+function heroTexture(kind) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 680;
+  const x = c.getContext('2d');
+  x.clearRect(0, 0, c.width, c.height);
+
+  if (kind === 'bg') {
+    const g = x.createLinearGradient(0, 0, 380, 680);
+    g.addColorStop(0, '#16324a'); g.addColorStop(.55, '#1d2b52'); g.addColorStop(1, '#2a1f47');
+    x.fillStyle = g; x.fillRect(0, 0, 512, 680);
+    x.globalAlpha = .12; x.fillStyle = '#8fd8ff';
+    for (let i = 0; i < 40; i++) {
+      x.beginPath();
+      x.arc(Math.random()*512, Math.random()*680, Math.random()*70+12, 0, 7);
+      x.fill();
+    }
+  } else if (kind === 'subject') {
+    const g = x.createRadialGradient(256, 330, 20, 256, 330, 210);
+    g.addColorStop(0, 'rgba(120,225,255,.95)'); g.addColorStop(.6,'rgba(80,150,230,.72)');
+    g.addColorStop(1, 'rgba(60,90,190,0)');
+    x.fillStyle = g;
+    x.beginPath(); x.ellipse(256, 340, 150, 215, 0, 0, 7); x.fill();
+    x.beginPath(); x.arc(256, 150, 84, 0, 7); x.fill();
+  } else if (kind === 'graphic') {
+    x.strokeStyle = 'rgba(190,150,255,.92)'; x.lineWidth = 5;
+    x.strokeRect(48, 48, 416, 584);
+    x.beginPath(); x.arc(256, 132, 52, 0, 7); x.stroke();
+    for (let i = 0; i < 4; i++) {
+      x.beginPath(); x.arc(104 + i*102, 566, 24, 0, 7); x.stroke();
+    }
+  } else if (kind === 'text') {
+    x.fillStyle = 'rgba(255,170,215,.95)';
+    [[60,230,300,34],[60,282,360,34],[60,334,220,34]].forEach(([a,b,w,h]) =>
+      x.fillRect(a,b,w,h));
+    x.fillStyle = 'rgba(255,255,255,.55)';
+    [[60,410,180,12],[60,436,150,12],[60,462,164,12]].forEach(([a,b,w,h]) =>
+      x.fillRect(a,b,w,h));
+  } else {                              // decor confetti
+    for (let i = 0; i < 60; i++) {
+      x.fillStyle = ['#ffc078','#5eead4','#f472b6','#4ee6ff'][i % 4];
+      x.globalAlpha = .8;
+      x.save();
+      x.translate(Math.random()*512, Math.random()*680);
+      x.rotate(Math.random()*7);
+      x.fillRect(0, 0, 16, 6);
+      x.restore();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const HERO_SPEC = [
+  { kind:'bg',      color:0x8fb6d4 },
+  { kind:'decor',   color:0xffc078 },
+  { kind:'subject', color:0x4ee6ff },
+  { kind:'graphic', color:0xa78bfa },
+  { kind:'text',    color:0xf472b6 },
+];
+
+function buildHero() {
+  const W = 13, H = 17;
+  HERO_SPEC.forEach((spec, i) => {
+    const geo = new THREE.PlaneGeometry(W, H, 1, 1);
+    const mat = new THREE.MeshBasicMaterial({
+      map: heroTexture(spec.kind), transparent: true, opacity: 0,
+      side: THREE.DoubleSide, depthWrite: false, toneMapped: false
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+
+    const frame = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: spec.color, transparent: true, opacity: 0 }));
+    mesh.add(frame);
+
+    mesh.position.z = -22 + i * 11;
+    heroGroup.add(mesh);
+    heroPlanes.push({ mesh, frame, i, phase: i * 1.15 });
+
+    // staggered fade-in so the scene assembles rather than pops
+    tween(0, 1, 1300, v => {
+      mat.opacity = v * (spec.kind === 'bg' ? .85 : .74);
+      frame.material.opacity = v * .5;
+    }, easeOutCubic, null, 220 + i * 130);
+  });
+
+  heroGroup.rotation.set(-0.16, 0.52, 0.05);
+  heroGroup.position.set(0, 0, 0);
+  camTween(72, 46, 2200, v => { camera.position.z = v; });
+}
+
+function disposeHero() {
+  heroPlanes.forEach(({ mesh, frame }) => {
+    heroGroup.remove(mesh);
+    mesh.geometry.dispose();
+    if (mesh.material.map) mesh.material.map.dispose();
+    mesh.material.dispose();
+    frame.geometry.dispose(); frame.material.dispose();
+  });
+  heroPlanes = [];
+}
+
+/* ========================================================================
+   SCAN SHADER — the uploaded image becomes a 3D plane that is visibly
+   "read" by a sweeping scanline while the pipeline runs.
+   ======================================================================== */
+const SCAN_VERT = /* glsl */`
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const SCAN_FRAG = /* glsl */`
+  uniform sampler2D uMap;
+  uniform float uTime;      // seconds
+  uniform float uScan;      // 0..1 sweep position (top -> bottom)
+  uniform float uProgress;  // 0..1 pipeline progress
+  uniform float uFade;      // 0..1 master opacity
+  varying vec2 vUv;
+
+  void main() {
+    vec2 uv = vUv;
+    float d = abs((1.0 - uv.y) - uScan);
+
+    // chromatic split, strongest at the scan head — reads as "being read"
+    float band  = smoothstep(0.085, 0.0, d);
+    float shift = band * 0.0075;
+    vec4 col;
+    col.r = texture2D(uMap, uv + vec2(shift, 0.0)).r;
+    col.g = texture2D(uMap, uv).g;
+    col.b = texture2D(uMap, uv - vec2(shift, 0.0)).b;
+    col.a = texture2D(uMap, uv).a;
+
+    // territory behind the sweep is "analysed": full colour.
+    // ahead of it, desaturated and dimmed.
+    float analysed = smoothstep(0.02, -0.02, (1.0 - uv.y) - uScan);
+    float lum = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+    vec3 pending = mix(vec3(lum), col.rgb, 0.28) * 0.42;
+    vec3 rgb = mix(pending, col.rgb, max(analysed, uProgress * 0.55));
+
+    // measurement grid, fading in as the pipeline advances
+    vec2 g = abs(fract(uv * vec2(26.0, 34.0)) - 0.5);
+    float grid = (1.0 - smoothstep(0.44, 0.5, max(g.x, g.y)));
+    rgb += vec3(0.18, 0.62, 0.85) * grid * 0.13 * (1.0 - analysed);
+
+    // the scan head itself
+    float line = smoothstep(0.010, 0.0, d);
+    rgb += vec3(0.42, 0.94, 1.0) * (line * 1.9 + band * 0.30);
+
+    // travelling interference bars
+    float bars = sin((uv.y * 220.0) - uTime * 9.0) * 0.5 + 0.5;
+    rgb += vec3(0.25, 0.75, 1.0) * bars * 0.022 * (1.0 - analysed);
+
+    // rim glow so the plate reads as a lit object
+    vec2 e = abs(uv - 0.5) * 2.0;
+    float edge = smoothstep(0.86, 1.0, max(e.x, e.y));
+    rgb += vec3(0.35, 0.85, 1.0) * edge * 0.28;
+
+    gl_FragColor = vec4(rgb, col.a * uFade);
+  }
+`;
+
+let scanMesh = null;
+let scanUniforms = null;
+
+function showScanPlane(dataURL, aspect) {
+  return new Promise(resolve => {
+    new THREE.TextureLoader().load(dataURL, tex => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+
+      const H = 18, W = H * aspect;
+      const geo = new THREE.PlaneGeometry(W, H, 1, 1);
+      scanUniforms = {
+        uMap:      { value: tex },
+        uTime:     { value: 0 },
+        uScan:     { value: 0 },
+        uProgress: { value: 0 },
+        uFade:     { value: 0 },
+      };
+      const mat = new THREE.ShaderMaterial({
+        uniforms: scanUniforms,
+        vertexShader: SCAN_VERT,
+        fragmentShader: SCAN_FRAG,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      scanMesh = new THREE.Mesh(geo, mat);
+      scanMesh.position.set(0, 0, 0);
+      scanMesh.rotation.set(0, 0, 0);
+      scene.add(scanMesh);
+
+      // frame that snaps in around the plate
+      const frame = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geo),
+        new THREE.LineBasicMaterial({ color: 0x4ee6ff, transparent: true, opacity: 0 }));
+      scanMesh.add(frame);
+      scanMesh.userData.frame = frame;
+
+      tween(0, 1, 900, v => {
+        scanUniforms.uFade.value = v;
+        frame.material.opacity = v * 0.75;
+      }, easeOutCubic);
+
+      // ease the camera to a head-on read of the plate
+      camTween(camera.position.z, 30, 1500, v => { camera.position.z = v; });
+      camTween(camera.position.x, 0, 1500, v => { camera.position.x = v; });
+      camTween(camera.position.y, 0, 1500, v => { camera.position.y = v; });
+      resolve();
+    }, undefined, () => resolve());
+  });
+}
+
+function disposeScanPlane(animate = true) {
+  if (!scanMesh) return;
+  const mesh = scanMesh, u = scanUniforms;
+  scanMesh = null; scanUniforms = null;
+  const finish = () => {
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+    if (mesh.material.uniforms?.uMap?.value) mesh.material.uniforms.uMap.value.dispose();
+    mesh.material.dispose();
+    const f = mesh.userData.frame;
+    if (f) { f.geometry.dispose(); f.material.dispose(); }
+  };
+  if (!animate) return finish();
+  // dissolve outward as the real stack takes its place
+  tween(1, 0, 700, v => {
+    u.uFade.value = v;
+    const f = mesh.userData.frame; if (f) f.material.opacity = v * .75;
+    mesh.scale.setScalar(1 + (1 - v) * 0.18);
+  }, easeOutCubic, finish);
+}
+
+/* ========================================================================
+   result stack
+   ======================================================================== */
 const stackGroup = new THREE.Group();
 scene.add(stackGroup);
 
-const CANVAS_H   = 16;          // world units for the full image height
-let planes       = [];          // { mesh, frame, data, baseZ, homeX, homeY }
-let manifest     = null;
-let jobId        = null;
-let selected     = null;
-let hovered      = null;
-let explodeAmt   = 0.45;
-let spreadAmt    = 0.0;
+const CANVAS_H = 16;
+let planes = [], manifest = null, jobId = null;
+let selected = null, hovered = null;
+let explodeAmt = 0.45, spreadAmt = 0;
 
 const loader = new THREE.TextureLoader();
+const KIND_COLOR = {
+  background: 0x94a3b8, decor: 0xfb923c, subject: 0x4ee6ff,
+  graphic: 0xa78bfa, text: 0xf472b6, foreground: 0x5eead4
+};
 
 function clearStack() {
   for (const p of planes) {
@@ -515,84 +911,69 @@ function clearStack() {
   planes = []; selected = null; hovered = null;
 }
 
-const KIND_COLOR = {
-  background: 0x94a3b8, decor: 0xfb923c, subject: 0x49e8ff,
-  graphic:    0xa78bfa, text:  0xf472b6, foreground: 0x5eead4
-};
-
 async function buildStack(mf, id) {
   clearStack();
   manifest = mf; jobId = id;
 
-  const W = mf.width, H = mf.height;
-  const scale = CANVAS_H / H;                 // world units per source pixel
+  const W = mf.width, H = mf.height, scale = CANVAS_H / H;
   const layers = mf.layers.filter(l => l.file);
-  const n = Math.max(layers.length, 1);
 
-  let loaded = 0;
   await Promise.all(layers.map(layer => new Promise(resolve => {
-    const url = `/api/jobs/${id}/file/${layer.file}`;
-    loader.load(url, tex => {
+    loader.load(`/api/jobs/${id}/file/${layer.file}`, tex => {
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.minFilter  = THREE.LinearMipmapLinearFilter;
       tex.magFilter  = THREE.LinearFilter;
       tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
 
-      // Layers are exported cropped to their bbox with the offset recorded in
-      // the manifest, so each plane is sized and placed from that geometry —
-      // the 3D stack reproduces the original composition exactly.
+      // Layers are exported cropped with their offset in the manifest, so the
+      // plane geometry reproduces the original composition exactly.
       const size   = layer.meta?.size   || [W, H];
       const offset = layer.meta?.offset || [0, 0];
-      const pw = size[0] * scale, ph = size[1] * scale;
-
-      const geo = new THREE.PlaneGeometry(pw, ph);
+      const geo = new THREE.PlaneGeometry(size[0] * scale, size[1] * scale);
       const mat = new THREE.MeshBasicMaterial({
         map: tex, transparent: true, side: THREE.DoubleSide,
-        depthWrite: false, alphaTest: 0.004, toneMapped: false
+        depthWrite: false, alphaTest: 0.004, toneMapped: false, opacity: 0
       });
       const mesh = new THREE.Mesh(geo, mat);
-
       const homeX =  (offset[0] + size[0] / 2 - W / 2) * scale;
       const homeY = -(offset[1] + size[1] / 2 - H / 2) * scale;
       mesh.position.set(homeX, homeY, 0);
       mesh.renderOrder = layer.z;
       mesh.userData.layer = layer;
 
-      // glowing outline, revealed on hover / selection
-      const edges = new THREE.EdgesGeometry(geo);
-      const frame = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
-        color: KIND_COLOR[layer.kind] ?? 0x49e8ff,
-        transparent: true, opacity: 0, depthWrite: false
-      }));
+      const frame = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geo),
+        new THREE.LineBasicMaterial({
+          color: KIND_COLOR[layer.kind] ?? 0x4ee6ff,
+          transparent: true, opacity: 0, depthWrite: false }));
       mesh.add(frame);
 
       stackGroup.add(mesh);
       planes.push({ mesh, frame, data: layer, baseZ: layer.z, homeX, homeY });
-      loaded++;
       resolve();
-    }, undefined, () => { loaded++; resolve(); });
+    }, undefined, () => resolve());
   })));
 
   planes.sort((a, b) => a.baseZ - b.baseZ);
+  layoutStack(false);
+  // layers materialise back-to-front, so you see the stack assemble
+  planes.forEach((p, i) => tween(0, 1, 620, v => { p.mesh.material.opacity = v; },
+                                 easeOutCubic, null, i * 55));
   layoutStack(true);
-  return loaded;
 }
 
-/** Position every plane from the current explode / spread amounts. */
 function layoutStack(animate = false) {
   const n = Math.max(planes.length - 1, 1);
-  const depth = explodeAmt * 44;                 // total Z extent
+  const depth = explodeAmt * 44;
   planes.forEach((p, i) => {
-    const t  = i / n;
+    const t = i / n;
     const tz = -depth / 2 + t * depth;
-    // "spread" fans layers outward in a gentle arc so dense stacks stay legible
     const ang = t * Math.PI * 2;
-    const sx  = Math.cos(ang) * spreadAmt * 13;
-    const sy  = Math.sin(ang) * spreadAmt * 7;
-    const tx = p.homeX + sx, ty = p.homeY + sy;
+    const tx = p.homeX + Math.cos(ang) * spreadAmt * 13;
+    const ty = p.homeY + Math.sin(ang) * spreadAmt * 7;
     if (animate) {
       const fz = p.mesh.position.z, fx = p.mesh.position.x, fy = p.mesh.position.y;
-      tween(0, 1, 900 + i * 55, v => {
+      tween(0, 1, 950 + i * 60, v => {
         p.mesh.position.z = fz + (tz - fz) * v;
         p.mesh.position.x = fx + (tx - fx) * v;
         p.mesh.position.y = fy + (ty - fy) * v;
@@ -603,32 +984,42 @@ function layoutStack(animate = false) {
   });
 }
 
-/* =========================================================================
-   interaction
-   ========================================================================= */
+/* ========================================================================
+   picking
+   ======================================================================== */
 const ray = new THREE.Raycaster();
-const ptr = new THREE.Vector2();
-let pointerInsideUI = false;
+const ptr = new THREE.Vector2(0, 0);
+const ptrNorm = new THREE.Vector2(0, 0);   // -1..1 for parallax
+let overUI = false;
 
 addEventListener('pointermove', e => {
-  pointerInsideUI = !!e.target.closest('aside, footer, header, #drop, #progress');
-  ptr.x = (e.clientX / innerWidth)  * 2 - 1;
+  overUI = !!e.target.closest('aside, footer, header, #drop, #progress, .toast');
+  ptr.x = (e.clientX / innerWidth) * 2 - 1;
   ptr.y = -(e.clientY / innerHeight) * 2 + 1;
+  ptrNorm.set(ptr.x, ptr.y);
 });
 
 function pick() {
-  if (pointerInsideUI || !planes.length) return null;
+  if (overUI || !planes.length) return null;
   ray.setFromCamera(ptr, camera);
   const hits = ray.intersectObjects(planes.map(p => p.mesh), false);
   for (const h of hits) {
-    // ignore fully transparent parts so you can reach layers behind holes
     if (h.object.userData.layer?.kind === 'background' && hits.length > 1) continue;
     return planes.find(p => p.mesh === h.object) || null;
   }
   return null;
 }
 
-canvas.addEventListener('click', () => {
+// Distinguish a click from the end of an orbit drag. Without this, every
+// rotate gesture ends in a selection that snaps the camera target somewhere
+// else — which reads as the controls fighting you.
+let downX = 0, downY = 0, downT = 0;
+canvas.addEventListener('pointerdown', e => {
+  downX = e.clientX; downY = e.clientY; downT = performance.now();
+});
+canvas.addEventListener('pointerup', e => {
+  const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
+  if (moved > 6 || performance.now() - downT > 450) return;   // it was a drag
   const hit = pick();
   if (hit) selectLayer(hit.data.id, true);
 });
@@ -640,30 +1031,32 @@ function selectLayer(id, focus = false) {
   renderInspector(selected?.data ?? null);
   if (focus && selected) {
     controls.autoRotate = false;
-    document.getElementById('rotate').classList.remove('on');
+    $('rotate').classList.remove('on');
     const p = selected.mesh.position;
-    const target = new THREE.Vector3(p.x, p.y, p.z);
     const from = controls.target.clone();
-    tween(0, 1, 850, v => {
-      controls.target.lerpVectors(from, target, v);
-    }, easeInOut);
+    const to = new THREE.Vector3(p.x, p.y, p.z);
+    cancelTweens('cam');
+    camTween(0, 1, 850, v => { controls.target.lerpVectors(from, to, v); });
   }
 }
 
-/* =========================================================================
-   HUD rendering
-   ========================================================================= */
+/* ========================================================================
+   HUD
+   ======================================================================== */
 const $ = id => document.getElementById(id);
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 function renderLayerList() {
   const list = $('layerList');
   list.innerHTML = '';
   $('lcount').textContent = manifest.layers.length;
-
   [...manifest.layers].reverse().forEach(layer => {
     const row = document.createElement('div');
-    row.className = 'layer';
-    row.dataset.id = layer.id;
+    row.className = 'layer'; row.dataset.id = layer.id;
 
     const img = document.createElement('img');
     img.className = 'thumb'; img.loading = 'lazy';
@@ -690,46 +1083,32 @@ function renderLayerList() {
 
 function renderInspector(layer) {
   const box = $('inspector');
-  if (!layer) {
-    box.innerHTML = '<div><span>Selection</span><span>none</span></div>';
-    return;
-  }
+  if (!layer) { box.innerHTML = '<div><span>Selection</span><span>none</span></div>'; return; }
   const rows = [
-    ['Kind',     layer.kind],
-    ['Depth',    `Z${layer.z}`],
+    ['Kind', layer.kind],
+    ['Depth', `Z${layer.z}`],
     ['Coverage', `${(layer.coverage*100).toFixed(2)}%`],
     ['Confidence', `${(layer.confidence*100).toFixed(0)}%`],
-    ['Size',     layer.meta?.size ? `${layer.meta.size[0]}×${layer.meta.size[1]}` : '—'],
+    ['Size', layer.meta?.size ? `${layer.meta.size[0]}×${layer.meta.size[1]}` : '—'],
   ];
-  if (layer.color) {
-    rows.push(['Colour',
-      `<i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgb(${layer.color.join(',')});margin-right:5px;vertical-align:middle"></i>` +
-      `rgb(${layer.color.join(',')})`]);
-  }
+  if (layer.color) rows.push(['Colour',
+    `<i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgb(${layer.color.join(',')});margin-right:5px;vertical-align:middle"></i>rgb(${layer.color.join(',')})`]);
   if (layer.text) rows.push(['Text', `“${escapeHtml(layer.text.slice(0, 42))}”`]);
-
-  box.innerHTML = rows.map(([k, v]) =>
-    `<div><span>${k}</span><span>${v}</span></div>`).join('');
+  box.innerHTML = rows.map(([k,v]) => `<div><span>${k}</span><span>${v}</span></div>`).join('');
 }
 
 function renderHeadStats() {
-  const q = manifest.quality || {};
-  const t = manifest.timings_ms || {};
-  const total = Object.values(t).reduce((a, b) => a + b, 0);
+  const q = manifest.quality || {}, t = manifest.timings_ms || {};
+  const total = Object.values(t).reduce((a,b)=>a+b, 0);
   const b = manifest.backends || {};
   const neural = b.subject && b.subject !== 'saliency+grabcut';
   $('headStats').innerHTML = [
     `<div class="chip"><b>${manifest.layer_count}</b> layers</div>`,
-    `<div class="chip good"><b>${(q.psnr_db ?? 0).toFixed(1)}</b> dB recomposite</div>`,
+    `<div class="chip good"><b>${(q.psnr_db ?? 0).toFixed(1)}</b> dB</div>`,
     `<div class="chip"><b>${(total/1000).toFixed(1)}</b>s</div>`,
-    `<div class="chip ${neural ? 'good' : 'warn'}"><b>${escapeHtml(b.subject || '—')}</b></div>`,
+    `<div class="chip ${neural ? 'good':'warn'}"><b>${escapeHtml(b.subject || '—')}</b></div>`,
   ].join('');
   $('tagline').textContent = `${manifest.source} · ${manifest.width}×${manifest.height}`;
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 let toastTimer;
@@ -739,54 +1118,79 @@ function toast(msg, isError = false) {
   el.classList.toggle('err', isError);
   el.classList.add('on');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('on'), 3600);
+  toastTimer = setTimeout(() => el.classList.remove('on'), 3800);
 }
 
-/* =========================================================================
+/* ========================================================================
    pipeline driver
-   ========================================================================= */
+   ======================================================================== */
 let STAGES = [];
 
 async function loadHealth() {
   try {
-    const r = await fetch('/api/health');
-    const h = await r.json();
+    const h = await (await fetch('/api/health')).json();
     STAGES = h.stages || [];
     renderStageList();
-  } catch { /* health is advisory only */ }
+  } catch { /* advisory only */ }
 }
 
 function renderStageList() {
   $('stages').innerHTML = STAGES.map(s =>
     `<div class="stage-row" data-k="${s.key}">
        <div class="dot"></div><div class="nm">${escapeHtml(s.label)}</div>
-       <div class="tick">✓</div>
-     </div>`).join('');
+       <div class="tick">✓</div></div>`).join('');
 }
 
 function markStage(key, progress) {
   const rows = [...document.querySelectorAll('.stage-row')];
-  const idx  = rows.findIndex(r => r.dataset.k === key);
+  const idx = rows.findIndex(r => r.dataset.k === key);
   rows.forEach((r, i) => {
     r.classList.toggle('active', i === idx);
     r.classList.toggle('done', idx >= 0 && i < idx);
   });
-  if (key === 'done' || key === 'export') rows.forEach(r => {
-    r.classList.remove('active'); r.classList.add('done');
-  });
+  if (key === 'done' || key === 'export')
+    rows.forEach(r => { r.classList.remove('active'); r.classList.add('done'); });
   $('bar').style.width = `${Math.round(progress * 100)}%`;
   $('pct').textContent = `${Math.round(progress * 100)}%`;
+  if (scanUniforms) scanUniforms.uProgress.value = progress;
+}
+
+function readAsDataURL(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+function imageAspect(dataURL) {
+  return new Promise(res => {
+    const im = new Image();
+    im.onload = () => res(im.width / Math.max(im.height, 1));
+    im.onerror = () => res(0.75);
+    im.src = dataURL;
+  });
 }
 
 async function runFile(file) {
   if (!file) return;
   if (file.size > 25 * 1024 * 1024) { toast('Image is larger than 25 MB', true); return; }
 
+  // hand the stage over from hero to scan plate
   $('drop').classList.add('hidden');
-  $('progress').classList.add('on');
+  disposeHero();
+  clearStack();
+  disposeScanPlane(false);
+
+  const dataURL = await readAsDataURL(file);
+  const aspect  = await imageAspect(dataURL);
+  await showScanPlane(dataURL, aspect);
+
   renderStageList();
   markStage('start', 0.02);
-  $('progTitle').textContent = `Decomposing ${file.name}`;
+  $('progFile').textContent = file.name;
+  $('progress').classList.add('on');
 
   const form = new FormData();
   form.append('file', file);
@@ -798,7 +1202,9 @@ async function runFile(file) {
     job = await res.json();
   } catch (err) {
     $('progress').classList.remove('on');
+    disposeScanPlane();
     $('drop').classList.remove('hidden');
+    buildHero();
     toast(`Upload failed: ${err.message}`, true);
     return;
   }
@@ -813,18 +1219,16 @@ async function runFile(file) {
     const d = JSON.parse(ev.data);
     if (d.status === 'error') {
       $('progress').classList.remove('on');
+      disposeScanPlane();
       $('drop').classList.remove('hidden');
+      buildHero();
       toast(`Decomposition failed: ${d.error}`, true);
       return;
     }
     markStage('done', 1);
     await revealResult(d.manifest, job.job);
   });
-  es.onerror = () => {
-    es.close();
-    // SSE can drop behind proxies; fall back to polling so the demo still works
-    pollUntilDone(job.job);
-  };
+  es.onerror = () => { es.close(); pollUntilDone(job.job); };
 }
 
 async function pollUntilDone(id) {
@@ -836,7 +1240,7 @@ async function pollUntilDone(id) {
       if (d.status === 'done')  { await revealResult(d.manifest, id); return; }
       if (d.status === 'error') {
         $('progress').classList.remove('on');
-        $('drop').classList.remove('hidden');
+        disposeScanPlane(); $('drop').classList.remove('hidden'); buildHero();
         toast(`Failed: ${d.error}`, true); return;
       }
     } catch { /* keep trying */ }
@@ -849,39 +1253,38 @@ async function revealResult(mf, id) {
   renderHeadStats();
   renderInspector(null);
 
-  $('progress').classList.remove('on');
+  // the scanned plate dissolves as the decomposed stack takes its place
+  disposeScanPlane(true);
+
+  setTimeout(() => $('progress').classList.remove('on'), 550);
   $('panel').classList.add('on');
   $('transport').classList.add('on');
   $('hint').classList.add('on');
 
-  // cinematic entry: dolly in while the stack settles into place
-  camera.position.set(0, 3, 118);
-  controls.target.set(0, 0, 0);
-  tween(118, 46, 2000, v => { camera.position.z = v; }, easeInOut);
-  tween(3, 0, 2000, v => { camera.position.y = v; }, easeInOut);
+  controls.enabled = true;
   controls.autoRotate = true;
   $('rotate').classList.add('on');
+  controls.target.set(0, 0, 0);
+
+  camTween(camera.position.z, 46, 1900, v => { camera.position.z = v; });
+  camTween(camera.position.y, 0,  1900, v => { camera.position.y = v; });
 
   toast(`${mf.layer_count} layers · ${(mf.quality?.psnr_db ?? 0).toFixed(1)} dB recomposite`);
 }
 
-/* =========================================================================
-   controls wiring
-   ========================================================================= */
-$('pick').onclick   = () => $('file').click();
-$('file').onchange  = e => runFile(e.target.files[0]);
+/* ========================================================================
+   controls
+   ======================================================================== */
+$('pick').onclick  = () => $('file').click();
+$('file').onchange = e => runFile(e.target.files[0]);
 
-const drop = $('drop');
-['dragenter','dragover'].forEach(t => addEventListener(t, e => {
-  e.preventDefault(); drop.classList.add('dragging');
-}));
-['dragleave','drop'].forEach(t => addEventListener(t, e => {
-  e.preventDefault();
-  if (t === 'dragleave' && e.relatedTarget) return;
-  drop.classList.remove('dragging');
-}));
+let dragDepth = 0;
+addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
+addEventListener('dragover',  e => { e.preventDefault(); });
+addEventListener('dragleave', e => { e.preventDefault(); if (--dragDepth <= 0) document.body.classList.remove('dragging'); });
 addEventListener('drop', e => {
-  e.preventDefault();
+  e.preventDefault(); dragDepth = 0;
+  document.body.classList.remove('dragging');
   const f = e.dataTransfer?.files?.[0];
   if (f) runFile(f);
 });
@@ -894,61 +1297,69 @@ $('rotate').onclick = e => {
   e.currentTarget.classList.toggle('on', controls.autoRotate);
 };
 $('reset').onclick = () => {
+  cancelTweens('cam');
   controls.target.set(0, 0, 0);
-  tween(camera.position.z, 46, 800, v => { camera.position.z = v; }, easeInOut);
-  tween(camera.position.x, 0,  800, v => { camera.position.x = v; }, easeInOut);
-  tween(camera.position.y, 0,  800, v => { camera.position.y = v; }, easeInOut);
   stackGroup.rotation.set(0, 0, 0);
+  camTween(camera.position.z, 46, 850, v => { camera.position.z = v; });
+  camTween(camera.position.x, 0,  850, v => { camera.position.x = v; });
+  camTween(camera.position.y, 0,  850, v => { camera.position.y = v; });
 };
 $('flat').onclick = () => {
-  // snap to a head-on view of the reassembled composition
+  cancelTweens('cam');
   controls.autoRotate = false;
   $('rotate').classList.remove('on');
   stackGroup.rotation.set(0, 0, 0);
   controls.target.set(0, 0, 0);
   $('explode').value = 4; explodeAmt = 0.04;
-  $('spread').value = 0;  spreadAmt = 0;
+  $('spread').value  = 0; spreadAmt  = 0;
   layoutStack(true);
-  tween(camera.position.x, 0, 900, v => { camera.position.x = v; }, easeInOut);
-  tween(camera.position.y, 0, 900, v => { camera.position.y = v; }, easeInOut);
-  tween(camera.position.z, 30, 900, v => { camera.position.z = v; }, easeInOut);
+  camTween(camera.position.x, 0,  950, v => { camera.position.x = v; });
+  camTween(camera.position.y, 0,  950, v => { camera.position.y = v; });
+  camTween(camera.position.z, 30, 950, v => { camera.position.z = v; });
 };
-$('download').onclick = () => {
-  if (!jobId) return;
-  location.href = `/api/jobs/${jobId}/download`;
-};
+$('download').onclick = () => { if (jobId) location.href = `/api/jobs/${jobId}/download`; };
 $('again').onclick = () => {
   $('panel').classList.remove('on');
   $('transport').classList.remove('on');
   $('hint').classList.remove('on');
-  $('drop').classList.remove('hidden');
+  $('headStats').innerHTML = '';
+  $('tagline').textContent = 'image → layer decomposition';
   clearStack();
+  disposeScanPlane(false);
+  controls.enabled = false;
+  controls.autoRotate = true;
+  $('drop').classList.remove('hidden');
+  buildHero();
 };
 
-/* sample shortcuts — served from /static/samples when present */
-const SAMPLES = [
-  ['wellness', '/static/samples/wellness.png'],
-  ['jewels',   '/static/samples/jewels.png'],
-  ['festival', '/static/samples/festival.png'],
-];
-const sampleBox = $('samples');
+// Press feedback on every transport button.
+document.querySelectorAll('.icon-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    b.classList.remove('ping');
+    void b.offsetWidth;            // restart the animation
+    b.classList.add('ping');
+  });
+});
+
+const SAMPLES = [['wellness','/static/samples/wellness.png'],
+                 ['jewels','/static/samples/jewels.png'],
+                 ['festival','/static/samples/festival.png']];
 SAMPLES.forEach(([name, url]) => {
   const b = document.createElement('div');
   b.className = 'sample'; b.textContent = name;
   b.onclick = async () => {
     try {
       const res = await fetch(url);
-      if (!res.ok) throw new Error('not available');
-      const blob = await res.blob();
-      runFile(new File([blob], `${name}.png`, { type: 'image/png' }));
+      if (!res.ok) throw new Error('unavailable');
+      runFile(new File([await res.blob()], `${name}.png`, { type: 'image/png' }));
     } catch { toast('Sample not available in this deployment', true); }
   };
-  sampleBox.appendChild(b);
+  $('samples').appendChild(b);
 });
 
-/* =========================================================================
-   render loop
-   ========================================================================= */
+/* ========================================================================
+   loop
+   ======================================================================== */
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
@@ -957,6 +1368,8 @@ addEventListener('resize', () => {
 });
 
 let last = performance.now();
+let scanClock = 0;
+
 function animate(now) {
   requestAnimationFrame(animate);
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
@@ -968,28 +1381,54 @@ function animate(now) {
   starsNear.rotation.y -= dt * 0.011;
   starsNear.rotation.x += dt * 0.004;
 
-  // hover highlight: lift and outline the layer under the cursor, dim the rest
-  const hit = pick();
-  const activeId = hit?.data.id ?? hovered ?? selected?.data.id ?? null;
-  for (const p of planes) {
-    const isActive = p.data.id === activeId;
-    const isSel    = selected && p.data.id === selected.data.id;
-    const targetOp = activeId ? (isActive ? 1.0 : 0.26) : 1.0;
-    p.mesh.material.opacity += (targetOp - p.mesh.material.opacity) * Math.min(dt * 9, 1);
-
-    const frameOp = isActive ? 0.95 : (isSel ? 0.45 : 0.0);
-    p.frame.material.opacity += (frameOp - p.frame.material.opacity) * Math.min(dt * 9, 1);
-
-    const lift = isActive ? 1.15 : 1.0;
-    p.mesh.scale.x += (lift - p.mesh.scale.x) * Math.min(dt * 8, 1);
-    p.mesh.scale.y += (lift - p.mesh.scale.y) * Math.min(dt * 8, 1);
+  /* ---- hero idle motion + cursor parallax ---- */
+  if (heroPlanes.length) {
+    const t = now / 1000;
+    heroPlanes.forEach(({ mesh, frame, i, phase }) => {
+      // slow breathing separation: the stack opens and closes on a loop
+      const breathe = (Math.sin(t * 0.32 + phase * 0.4) * 0.5 + 0.5);
+      mesh.position.z = -22 + i * (6 + breathe * 9);
+      mesh.position.y = Math.sin(t * 0.5 + phase) * 0.55;
+      mesh.position.x = Math.cos(t * 0.38 + phase) * 0.42;
+      mesh.rotation.z = Math.sin(t * 0.24 + phase) * 0.02;
+      frame.material.opacity = 0.32 + Math.sin(t * 1.1 + phase) * 0.16;
+    });
+    heroGroup.rotation.y += (0.52 + ptrNorm.x * 0.30 - heroGroup.rotation.y) * Math.min(dt * 2.2, 1);
+    heroGroup.rotation.x += (-0.16 - ptrNorm.y * 0.22 - heroGroup.rotation.x) * Math.min(dt * 2.2, 1);
   }
-  canvas.style.cursor = hit ? 'pointer' : 'default';
+
+  /* ---- scan sweep ---- */
+  if (scanMesh && scanUniforms) {
+    scanClock += dt;
+    scanUniforms.uTime.value = scanClock;
+    scanUniforms.uScan.value = (scanClock * 0.42) % 1.0;   // repeating top→bottom
+    scanMesh.rotation.y = Math.sin(scanClock * 0.35) * 0.10;
+    scanMesh.rotation.x = Math.sin(scanClock * 0.27) * 0.05;
+  }
+
+  /* ---- result stack hover ---- */
+  if (planes.length) {
+    const hit = pick();
+    const activeId = hit?.data.id ?? hovered ?? selected?.data.id ?? null;
+    for (const p of planes) {
+      const isActive = p.data.id === activeId;
+      const isSel = selected && p.data.id === selected.data.id;
+      const targetOp = activeId ? (isActive ? 1.0 : 0.24) : 1.0;
+      p.mesh.material.opacity += (targetOp - p.mesh.material.opacity) * Math.min(dt * 9, 1);
+      const frameOp = isActive ? 0.95 : (isSel ? 0.45 : 0.0);
+      p.frame.material.opacity += (frameOp - p.frame.material.opacity) * Math.min(dt * 9, 1);
+      const lift = isActive ? 1.14 : 1.0;
+      p.mesh.scale.x += (lift - p.mesh.scale.x) * Math.min(dt * 8, 1);
+      p.mesh.scale.y += (lift - p.mesh.scale.y) * Math.min(dt * 8, 1);
+    }
+    canvas.style.cursor = hit ? 'pointer' : 'default';
+  }
 
   composer.render();
 }
 
 loadHealth();
+buildHero();
 requestAnimationFrame(animate);
 </script>
 </body>

@@ -134,6 +134,77 @@ def largest_components(mask: np.ndarray, min_area: int, max_count: int = 32
 # region statistics: photographic vs flat vector artwork
 # ---------------------------------------------------------------------------
 
+def split_touching(image_rgb: np.ndarray, mask: np.ndarray, min_area: int,
+                   peak_ratio: float = 0.34, max_parts: int = 10
+                   ) -> List[np.ndarray]:
+    """Separate touching blobs inside one connected mask via watershed.
+
+    Salient-object models return a single silhouette covering *everything*
+    prominent. On a group shot or a dense collage that is one connected region,
+    so plain connected-component labelling cannot break it up and the result is
+    a single layer covering half the canvas — not a decomposition.
+
+    The distance transform peaks once per blob centre, so thresholding it gives
+    reliable per-object seeds; watershed then grows those seeds back out along
+    real image edges. Returns [mask] unchanged when only one core is found.
+    """
+    binary = (mask > 127).astype(np.uint8)
+    if int(binary.sum()) < min_area * 2:
+        return [mask]
+
+    dist = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+    if dist.max() <= 1e-6:
+        return [mask]
+
+    _, cores = cv2.threshold(dist, peak_ratio * dist.max(), 255, cv2.THRESH_BINARY)
+    cores = cores.astype(np.uint8)
+    # Erode lightly so two blobs joined by a thick bridge still separate.
+    cores = cv2.morphologyEx(
+        cores, cv2.MORPH_OPEN,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+
+    count, markers = cv2.connectedComponents(cores)
+    if count <= 2:                      # background + a single core
+        return [mask]
+
+    unknown = cv2.subtract(binary * 255, cores)
+    markers = markers + 1
+    markers[unknown == 255] = 0
+
+    try:
+        ws = cv2.watershed(np.ascontiguousarray(image_rgb), markers.copy())
+    except Exception:
+        return [mask]
+
+    parts: List[Tuple[int, np.ndarray]] = []
+    for label in range(2, count + 1):
+        part = ((ws == label) & (binary > 0)).astype(np.uint8) * 255
+        area = int(np.count_nonzero(part))
+        if area >= min_area:
+            parts.append((area, part))
+
+    if len(parts) < 2:
+        return [mask]
+
+    parts.sort(key=lambda p: -p[0])
+    out = [p for _, p in parts[:max_parts]]
+
+    # Watershed drops the 1px ridge between regions; give those pixels back to
+    # the nearest part so the union still reconstructs the original silhouette.
+    claimed = union(*out)
+    leftover = subtract(mask, claimed)
+    if np.count_nonzero(leftover) > 0:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        for i, part in enumerate(out):
+            grown = cv2.dilate(part, k)
+            gained = cv2.bitwise_and(grown, leftover)
+            if np.count_nonzero(gained):
+                out[i] = cv2.bitwise_or(part, gained)
+                leftover = subtract(leftover, gained)
+
+    return out
+
+
 def texture_score(image_rgb: np.ndarray, mask: np.ndarray) -> float:
     """Score 0..1 estimating how *photographic* a masked region is.
 

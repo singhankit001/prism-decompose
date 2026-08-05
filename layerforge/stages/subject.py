@@ -25,7 +25,7 @@ import numpy as np
 from ..backends import rembg_session
 from ..config import Config
 from ..imaging import (clean_mask, fill_holes, largest_components, refine_alpha,
-                       texture_score)
+                       split_touching, texture_score)
 
 log = logging.getLogger("layerforge.subject")
 
@@ -188,10 +188,31 @@ def extract_subjects(image_rgb: np.ndarray, bg_prob: np.ndarray, cfg: Config
     binary = fill_holes(binary)
 
     h, w = binary.shape
-    min_area = int(h * w * cfg.subject_min_area_frac)
-    parts = largest_components(binary, min_area=min_area, max_count=6)
+    canvas = float(h * w)
+    min_area = int(canvas * cfg.subject_min_area_frac)
+    parts = largest_components(binary, min_area=min_area, max_count=8)
     if not parts and np.count_nonzero(binary) > min_area:
         parts = [binary]
+
+    # A salient-object network returns one silhouette around everything
+    # prominent. On group shots and collages that is a single connected region
+    # covering half the frame, which is not a decomposition — split it.
+    # This applies to the neural path too: the coverage cap inside
+    # _classical_alpha only guards the fallback.
+    refined_parts: List[np.ndarray] = []
+    for part in parts:
+        coverage = float(np.count_nonzero(part)) / canvas
+        if coverage > cfg.subject_max_coverage * 0.62:
+            pieces = split_touching(image_rgb, part, min_area,
+                                    peak_ratio=cfg.subject_split_peak_ratio,
+                                    max_parts=cfg.subject_max_parts)
+            refined_parts.extend(pieces)
+        else:
+            refined_parts.append(part)
+
+    # Largest first, capped so output stays readable.
+    refined_parts.sort(key=lambda m: -int(np.count_nonzero(m)))
+    parts = refined_parts[: cfg.subject_max_parts]
 
     masks: List[np.ndarray] = []
     for part in parts:

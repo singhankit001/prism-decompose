@@ -60,12 +60,25 @@ class Layer:
 
     @property
     def area(self) -> int:
-        return int(np.count_nonzero(self.mask))
+        """Solid pixel count — the part of the layer that is actually opaque."""
+        return int(np.count_nonzero(self.mask > 127))
 
     @property
     def coverage(self) -> float:
+        """Alpha-weighted occupancy of the canvas, in [0, 1].
+
+        Weighted rather than a raw pixel count so that soft edges contribute
+        proportionally. Because the layers form an alpha partition, coverage
+        across a decomposition sums to at most 1.
+        """
         h, w = self.mask.shape[:2]
-        return self.area / float(max(h * w, 1))
+        total = float(max(h * w, 1)) * 255.0
+        return float(self.mask.astype(np.float64).sum()) / total
+
+    @property
+    def is_empty(self) -> bool:
+        """True when nothing meaningful survives — used to prune after stripping."""
+        return not bool(np.any(self.mask > 8))
 
     def compute_bbox(self) -> Optional[Tuple[int, int, int, int]]:
         self.bbox = _bbox_from_mask(self.mask)
