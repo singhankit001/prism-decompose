@@ -33,7 +33,7 @@ from typing import Dict, List, Optional
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                StreamingResponse)
@@ -113,7 +113,7 @@ def _purge_expired() -> None:
 # worker
 # ---------------------------------------------------------------------------
 
-def _run_job(job: Job, image_rgb: np.ndarray) -> None:
+def _run_job(job: Job, image_rgb: np.ndarray, merge_text: bool = False) -> None:
     def publish(stage: str, frac: float, message: str) -> None:
         job.stage = stage
         job.progress = frac
@@ -126,6 +126,7 @@ def _run_job(job: Job, image_rgb: np.ndarray) -> None:
         publish("start", 0.02, "Preparing image")
 
         cfg = Config()
+        cfg.merge_text_layers = merge_text
         engine = LayerForge(cfg)
         result = engine.decompose(image_rgb, source_name=os.path.splitext(job.filename)[0],
                                   progress=publish)
@@ -170,7 +171,8 @@ async def health() -> JSONResponse:
 
 
 @app.post("/api/decompose")
-async def decompose(file: UploadFile = File(...)) -> JSONResponse:
+async def decompose(file: UploadFile = File(...),
+                    merge_text: bool = Form(False)) -> JSONResponse:
     _purge_expired()
 
     raw = await file.read()
@@ -194,7 +196,7 @@ async def decompose(file: UploadFile = File(...)) -> JSONResponse:
         JOBS[job.id] = job
     os.makedirs(job.dir, exist_ok=True)
 
-    POOL.submit(_run_job, job, image_rgb)
+    POOL.submit(_run_job, job, image_rgb, merge_text)
     return JSONResponse({"job": job.id, **job.snapshot()}, status_code=202)
 
 

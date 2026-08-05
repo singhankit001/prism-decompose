@@ -204,6 +204,30 @@
   }
   .btn:hover::after { transform: translateX(130%); transition: transform .8s ease; }
 
+  /* combine-copy toggle */
+  .opt {
+    display: inline-flex; align-items: center; gap: 10px; cursor: pointer;
+    margin-top: 20px; padding: 9px 15px; border-radius: 10px; user-select: none;
+    border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.035);
+    transition: all .22s;
+  }
+  .opt:hover { border-color: rgba(78,230,255,.42); background: rgba(78,230,255,.08); }
+  .opt input { position: absolute; opacity: 0; pointer-events: none; }
+  .opt .box {
+    width: 17px; height: 17px; border-radius: 5px; flex: none; display: grid; place-items: center;
+    border: 1.5px solid rgba(255,255,255,.28); transition: all .22s;
+  }
+  .opt .box svg { width: 11px; height: 11px; stroke: #04121a; fill: none;
+                  stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
+                  opacity: 0; transform: scale(.5); transition: all .22s; }
+  .opt input:checked + .box {
+    background: linear-gradient(135deg,#9df5ff,var(--cyan));
+    border-color: var(--cyan); box-shadow: 0 0 14px rgba(78,230,255,.6);
+  }
+  .opt input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .opt .txt { font-size: 12.5px; color: var(--muted); }
+  .opt:hover .txt { color: var(--text); }
+
   .samples { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 26px; }
   .samples > span {
     font-family: var(--mono); font-size: 9px; letter-spacing: .2em; text-transform: uppercase;
@@ -467,6 +491,13 @@
     </div>
     <button class="btn" id="pick">Choose image</button>
     <input type="file" id="file" accept="image/*" hidden />
+
+    <label class="opt" id="mergeOpt">
+      <input type="checkbox" id="mergeText" />
+      <span class="box"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7"/></svg></span>
+      <span class="txt">Combine all copy into a single text layer</span>
+    </label>
+
     <div class="samples" id="samples"><span>or try a sample</span></div>
   </div>
 </div>
@@ -1232,6 +1263,7 @@ async function runFile(file) {
 
   const form = new FormData();
   form.append('file', file);
+  form.append('merge_text', $('mergeText')?.checked ? 'true' : 'false');
 
   let job;
   try {

@@ -173,6 +173,13 @@ class LayerForge:
             layer.color = line.color or dominant_color(image_rgb, full_mask)
             result.add(layer)
 
+        # Optional consolidation. Applied after assembly rather than inside the
+        # text stage, because type also arrives from the graphics stage when
+        # the text detector misses gradient-filled display faces — merging
+        # earlier would leave those as separate layers.
+        if cfg.merge_text_layers:
+            self._merge_text(result, image_rgb)
+
         # -- 6. ordering -----------------------------------------------------
         emit("ordering", 0.90, "Resolving depth")
         with timer("ordering"):
@@ -200,6 +207,38 @@ class LayerForge:
 
         emit("done", 1.0, "Complete")
         return result
+
+
+    @staticmethod
+    def _merge_text(result: Decomposition, image_rgb: np.ndarray) -> None:
+        """Collapse every text layer into one combined type layer, in place."""
+        texts = [l for l in result.layers if l.kind == KIND_TEXT]
+        if len(texts) < 2:
+            return
+
+        combined = None
+        strings, scores = [], []
+        for layer in texts:
+            combined = layer.mask if combined is None else union(combined, layer.mask)
+            if layer.text:
+                strings.append(" ".join(layer.text.split()))
+            scores.append(layer.confidence)
+
+        if combined is None:
+            return
+
+        joined = " · ".join(s for s in strings if s)
+        merged = Layer(
+            kind=KIND_TEXT,
+            label=f'text "{joined[:58]}"' if joined else f"text ({len(texts)} blocks)",
+            mask=combined,
+            confidence=float(np.mean(scores)) if scores else 0.5,
+            text=joined or None)
+        merged.color = dominant_color(image_rgb, combined)
+        merged.meta["blocks"] = len(texts)
+
+        result.layers = [l for l in result.layers if l.kind != KIND_TEXT]
+        result.add(merged)
 
 
 class _Timer:

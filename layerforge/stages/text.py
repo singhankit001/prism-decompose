@@ -324,14 +324,21 @@ def _validate(block: Sequence[_Comp], shape: Tuple[int, int], cfg: Config) -> bo
     if bw > w * 0.97 and bh > h * 0.60:
         return False
 
-    # Glyph-height consistency. Characters on a line share a cap height, so
-    # their heights cluster tightly. Foliage, confetti and texture fragments
-    # that survive the earlier filters do not — this is what stops leaves in a
-    # photograph being emitted as text layers.
+    # Glyph-height consistency, measured only over the taller half of the
+    # components.
+    #
+    # Raw height variance is the wrong statistic: a line like
+    # "Radiate your essence." legitimately mixes caps, x-height letters,
+    # descenders and a full stop, so its heights span a 4x range and any
+    # sane threshold rejects real typography. Taking the components at or
+    # above the median height isolates caps and ascenders, which genuinely
+    # do share a common height — while foliage and texture fragments stay
+    # irregular at every scale.
     if len(block) >= 3:
         heights = np.array([c.h for c in block], dtype=np.float32)
-        mean_h = float(heights.mean())
-        if mean_h > 1e-6 and float(heights.std()) / mean_h > cfg.text_max_height_cv:
+        tall = heights[heights >= np.median(heights)]
+        mean_h = float(tall.mean())
+        if mean_h > 1e-6 and float(tall.std()) / mean_h > cfg.text_max_height_cv:
             return False
 
     # Small blocks must be built from several glyph-like parts to qualify;

@@ -29,7 +29,7 @@ import numpy as np
 from ..config import Config
 from ..imaging import (clean_mask, dominant_color, fill_holes, refine_alpha,
                        texture_score)
-from ..types import KIND_DECOR, KIND_GRAPHIC, KIND_SUBJECT
+from ..types import KIND_DECOR, KIND_GRAPHIC, KIND_SUBJECT, KIND_TEXT
 
 
 class GraphicRegion:
@@ -102,6 +102,57 @@ def _natural_subcomponents(mask: np.ndarray, min_area: int
             continue
         out.append((area, (labels == idx).astype(np.uint8) * 255))
     return out
+
+
+def _looks_like_text(mask: np.ndarray) -> bool:
+    """Does this residual region look like a run of type rather than imagery?
+
+    Type that the text stage missed — metallic or gradient-filled display
+    faces score high on the texture metric, because gold on dark really does
+    carry continuous tonal variation — would otherwise be promoted to a
+    "subject" layer, which is how a headline ends up labelled as a person.
+
+    Words have a structural signature that photographs do not: many separate
+    small components, of similar height, sitting on a common baseline, inside a
+    wide and short bounding box.
+    """
+    ys, xs = np.nonzero(mask)
+    if ys.size == 0:
+        return False
+    y0, y1 = int(ys.min()), int(ys.max()) + 1
+    x0, x1 = int(xs.min()), int(xs.max()) + 1
+    bw, bh = x1 - x0, y1 - y0
+    if bw <= 0 or bh <= 0:
+        return False
+
+    count, _labels, stats, _cent = cv2.connectedComponentsWithStats(
+        (mask[y0:y1, x0:x1] > 127).astype(np.uint8), connectivity=8)
+    if count < 4:                        # background + at least 3 glyphs
+        return False
+
+    boxes = [(stats[i, cv2.CC_STAT_TOP], stats[i, cv2.CC_STAT_HEIGHT],
+              stats[i, cv2.CC_STAT_AREA]) for i in range(1, count)]
+    boxes = [b for b in boxes if b[2] >= 12]
+    if len(boxes) < 3:
+        return False
+
+    heights = np.array([b[1] for b in boxes], dtype=np.float32)
+    tall = heights[heights >= np.median(heights)]
+    if tall.mean() <= 1e-6 or float(tall.std()) / float(tall.mean()) > 0.5:
+        return False
+
+    # Glyphs are small relative to the block that contains them.
+    if float(np.median(heights)) > bh * 0.75:
+        return False
+
+    # Baselines cluster: bottoms of the taller glyphs line up.
+    bottoms = np.array([b[0] + b[1] for b in boxes], dtype=np.float32)
+    if float(bottoms.std()) > bh * 0.42:
+        return False
+
+    # Ink is sparse inside the box — letters, not a filled shape.
+    fill = float(np.count_nonzero(mask[y0:y1, x0:x1] > 127)) / float(bw * bh)
+    return 0.03 < fill < 0.55
 
 
 def _describe(mask: np.ndarray, image_rgb: np.ndarray, texture: float
@@ -178,6 +229,18 @@ def extract_graphics(image_rgb: np.ndarray, residual: np.ndarray, cfg: Config
 
         coverage = float(np.count_nonzero(mask)) / float(mask.size)
         texture = texture_score(image_rgb, mask)
+
+        # Structure beats texture. Gradient-filled display type scores as
+        # photographic, so check the layout signature first — otherwise a
+        # gold headline is emitted as a "subject".
+        if _looks_like_text(mask):
+            alpha = refine_alpha(image_rgb, mask, max(4, cfg.alpha_guided_radius // 2),
+                                 cfg.alpha_guided_eps, max(1, cfg.alpha_feather - 1))
+            region = GraphicRegion(alpha, KIND_TEXT, "text", 0.55)
+            region.color = dominant_color(image_rgb, alpha)
+            out.append(region)
+            continue
+
         if texture >= cfg.photographic_texture_threshold:
             # Photographic residual: a second person, an inset photo, a product.
             solid = fill_holes(mask)
@@ -209,4 +272,7 @@ def extract_graphics(image_rgb: np.ndarray, residual: np.ndarray, cfg: Config
     graphics = [r for r in out if r.kind == KIND_GRAPHIC][: cfg.max_graphic_layers]
     subjects = [r for r in out if r.kind == KIND_SUBJECT][:4]
     decor = [r for r in out if r.kind == KIND_DECOR][:3]
-    return decor + subjects + graphics
+    # Type recovered from the residual — the text stage missed it, so it is
+    # kept generously rather than competing for the graphic budget.
+    texts = [r for r in out if r.kind == KIND_TEXT][: cfg.max_text_layers]
+    return decor + subjects + graphics + texts

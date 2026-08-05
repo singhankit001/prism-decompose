@@ -86,6 +86,8 @@ def main() -> int:
                     help="working resolution cap for segmentation")
     ap.add_argument("--no-psd", action="store_true", help="skip PSD export")
     ap.add_argument("--no-text", action="store_true", help="skip text detection")
+    ap.add_argument("--merge-text", action="store_true",
+                    help="emit all copy as one combined text layer")
     ap.add_argument("--classical", action="store_true",
                     help="force the no-weights classical path")
     ap.add_argument("--quiet", action="store_true")
@@ -101,6 +103,8 @@ def main() -> int:
         cfg.export_psd = False
     if args.no_text:
         cfg.enable_text = False
+    if args.merge_text:
+        cfg.merge_text_layers = True
 
     inputs = collect_inputs(args.input)
     if not inputs:

@@ -52,9 +52,13 @@ class Config:
     text_keep_unrecognised: bool = True
     # Cap on emitted text layers so a noisy image cannot flood the output.
     max_text_layers: int = 10
-    # Max coefficient of variation of glyph heights within one block. Real type
-    # shares a cap height; foliage and texture fragments do not.
-    text_max_height_cv: float = 0.42
+    # Max coefficient of variation of glyph heights within one block, measured
+    # over the taller half of the components (caps and ascenders) so that
+    # descenders and punctuation do not penalise ordinary mixed-case text.
+    text_max_height_cv: float = 0.55
+    # Emit every text block as one combined "text" layer instead of one layer
+    # per block. Useful when the type is wanted as a single removable overlay.
+    merge_text_layers: bool = False
     # Blocks below this canvas coverage need >=3 glyph components to qualify.
     text_min_coverage: float = 0.0012
 
