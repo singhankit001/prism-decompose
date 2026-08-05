@@ -89,17 +89,26 @@ if [[ "$FULL" -eq 1 ]]; then
 fi
 
 # ------------------------------------------------------------ tesseract ----
-if command -v tesseract >/dev/null 2>&1; then
-  ok "Tesseract $(tesseract --version 2>&1 | head -1 | awk '{print $2}')"
-else
-  warn "Tesseract not found — text layers are still detected and cut out,"
-  echo "  but the recognised string will be empty. To enable it:"
-  case "$(uname -s)" in
-    Darwin) echo "    brew install tesseract" ;;
-    Linux)  echo "    sudo apt-get install -y tesseract-ocr tesseract-ocr-eng" ;;
-    *)      echo "    winget install UB-Mannheim.TesseractOCR" ;;
-  esac
-fi
+# Ask the library itself rather than checking PATH: Homebrew's bin directory is
+# frequently absent from a non-login shell's PATH, which made this report
+# "not found" on machines where Tesseract was installed and working.
+python - <<'PY' 2>/dev/null || true
+try:
+    from layerforge import backends
+    path = backends.tesseract_path()
+    if path:
+        print(f"\033[32m✓\033[0m Tesseract \033[2m{path}\033[0m")
+    else:
+        print("\033[33m!\033[0m Tesseract not found — text layers are still detected "
+              "and cut out,\n  but the recognised string will be empty. To enable it:")
+        import platform
+        s = platform.system()
+        print("    brew install tesseract" if s == "Darwin"
+              else "    sudo apt-get install -y tesseract-ocr tesseract-ocr-eng" if s == "Linux"
+              else "    winget install UB-Mannheim.TesseractOCR")
+except BaseException as exc:
+    print(f"\033[33m!\033[0m Tesseract probe skipped ({type(exc).__name__})")
+PY
 
 # --------------------------------------------------------------- backends --
 # Advisory only. Trailing `|| true` because probing an optional dependency must

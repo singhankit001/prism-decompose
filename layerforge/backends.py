@@ -92,16 +92,74 @@ def has_easyocr() -> bool:
         return False
 
 
+# Locations Tesseract commonly lands in. A process started outside a login
+# shell — a launchd job, an IDE, a double-clicked app — often has a minimal
+# PATH that omits Homebrew entirely, so relying on PATH alone reports the
+# binary as missing on machines where it is plainly installed.
+_TESSERACT_CANDIDATES = (
+    "/opt/homebrew/bin/tesseract",      # Homebrew, Apple Silicon
+    "/usr/local/bin/tesseract",         # Homebrew, Intel macOS
+    "/usr/bin/tesseract",               # Linux distro packages
+    "/opt/local/bin/tesseract",         # MacPorts
+    "C:/Program Files/Tesseract-OCR/tesseract.exe",
+)
+
+
 @functools.lru_cache(maxsize=1)
 def has_tesseract() -> bool:
-    """Tesseract is used only to *recognise* text inside already-detected boxes."""
+    """Tesseract is used only to *recognise* text inside already-detected boxes.
+
+    Resolves the binary explicitly rather than trusting PATH, and points
+    pytesseract at whatever it finds.
+    """
     try:
         import pytesseract  # type: ignore
+    except BaseException:
+        return False
 
+    # 1) whatever pytesseract is already configured with, or PATH
+    try:
         pytesseract.get_tesseract_version()
         return True
     except BaseException:
-        return False
+        pass
+
+    # 2) shutil, which respects PATH but normalises platform differences
+    import shutil
+
+    found = shutil.which("tesseract")
+    if found:
+        pytesseract.pytesseract.tesseract_cmd = found
+        try:
+            pytesseract.get_tesseract_version()
+            return True
+        except BaseException:
+            pass
+
+    # 3) well-known install locations
+    for candidate in _TESSERACT_CANDIDATES:
+        if os.path.isfile(candidate):
+            pytesseract.pytesseract.tesseract_cmd = candidate
+            try:
+                pytesseract.get_tesseract_version()
+                log.info("Tesseract resolved at %s (not on PATH)", candidate)
+                return True
+            except BaseException:
+                continue
+
+    return False
+
+
+def tesseract_path() -> Optional[str]:
+    """Path to the resolved Tesseract binary, or None. Diagnostics only."""
+    if not has_tesseract():
+        return None
+    try:
+        import pytesseract  # type: ignore
+
+        return str(pytesseract.pytesseract.tesseract_cmd)
+    except BaseException:
+        return None
 
 
 def _torch_gpu() -> bool:
@@ -164,6 +222,7 @@ def describe() -> dict:
         "subject": "rembg" if has_rembg() else "saliency+grabcut",
         "text_detection": "easyocr-craft" if has_easyocr() else "mser+swt",
         "text_recognition": "tesseract" if has_tesseract() else "none",
+        "tesseract_path": tesseract_path() or "",
         "inpaint": "lama" if has_lama() else "structural+telea",
         "psd_export": "pytoshop" if has_pytoshop() else "unavailable",
         "mode": "classical (forced)" if FORCE_CLASSICAL else "auto",
