@@ -113,9 +113,11 @@ try:
     tag = "neural" if neural else "classical (no weights)"
     print(f"\033[32m✓\033[0m Backends: subject=\033[1m{b['subject']}\033[0m, "
           f"text=\033[1m{b['text_detection']}\033[0m  \033[2m[{tag}]\033[0m")
-    if not neural:
-        print("\033[2m  Running the weights-free path. Install extras with "
-              "./run.sh --full, or rembg weights will cache on first use.\033[0m")
+    if neural:
+        print("\033[2m  First decomposition downloads ~170 MB of weights, once. "
+              "Later runs are fast.\033[0m")
+    else:
+        print("\033[2m  Running the weights-free classical path.\033[0m")
 except BaseException as exc:
     print(f"\033[33m!\033[0m Backend probe skipped ({type(exc).__name__}); "
           f"pipeline still runs on the classical path.")

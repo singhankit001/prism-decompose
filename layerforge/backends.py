@@ -61,6 +61,38 @@ def easyocr_reader():
 
 
 @functools.lru_cache(maxsize=1)
+def has_rembg() -> bool:
+    """Is rembg importable with a working ONNX runtime?
+
+    Deliberately does NOT construct a session. `new_session` downloads ~170 MB
+    of weights on first call, so anything that merely *reports* capability
+    (health endpoint, launcher banner) must use this instead of
+    `rembg_session()` or it will block startup on a silent download.
+    """
+    if FORCE_CLASSICAL:
+        return False
+    try:
+        import rembg  # type: ignore  # noqa: F401
+
+        return True
+    except BaseException:
+        return False
+
+
+@functools.lru_cache(maxsize=1)
+def has_easyocr() -> bool:
+    """Is easyocr importable? Does not build a Reader (which downloads weights)."""
+    if FORCE_CLASSICAL:
+        return False
+    try:
+        import easyocr  # type: ignore  # noqa: F401
+
+        return True
+    except BaseException:
+        return False
+
+
+@functools.lru_cache(maxsize=1)
 def has_tesseract() -> bool:
     """Tesseract is used only to *recognise* text inside already-detected boxes."""
     try:
@@ -118,16 +150,21 @@ def has_pytoshop() -> bool:
 
 
 def describe() -> dict:
-    """Human-readable summary of which backend served each capability.
+    """Human-readable summary of which backend serves each capability.
 
     Surfaced in the manifest and in the UI so evaluation is transparent about
     what actually ran.
+
+    Uses import-level availability checks only. Constructing the neural
+    backends here would trigger large weight downloads every time anything
+    asked "what's available?" — including the health endpoint on every page
+    load. Sessions are built lazily, on first real use.
     """
     return {
-        "subject": "rembg" if rembg_session() is not None else "saliency+grabcut",
-        "text_detection": "easyocr-craft" if easyocr_reader() is not None else "mser+swt",
+        "subject": "rembg" if has_rembg() else "saliency+grabcut",
+        "text_detection": "easyocr-craft" if has_easyocr() else "mser+swt",
         "text_recognition": "tesseract" if has_tesseract() else "none",
-        "inpaint": "lama" if lama_inpainter() is not None else "structural+telea",
+        "inpaint": "lama" if has_lama() else "structural+telea",
         "psd_export": "pytoshop" if has_pytoshop() else "unavailable",
         "mode": "classical (forced)" if FORCE_CLASSICAL else "auto",
     }
