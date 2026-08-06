@@ -140,6 +140,37 @@ def test_composite_shape(result):
     assert out.shape == (result.height, result.width, 3)
 
 
+def test_real_text_is_detected(result):
+    """The synthetic poster has two real headlines; they must come back as text.
+
+    Guards the text validators from being tightened into uselessness. A filter
+    that rejects decorative clutter is only worth having if it still passes
+    plain black type on a flat ground.
+    """
+    texts = result.by_kind("text")
+    assert texts, "no text layer produced for a poster with two headlines"
+
+
+def test_decorative_clutter_is_not_called_text():
+    """Multi-coloured confetti must not be mistaken for type.
+
+    Scattered specks can group by size and spacing exactly like glyphs, so
+    geometry alone accepts them. What separates them is ink colour: letters in
+    a word share one, confetti does not.
+    """
+    rng = np.random.default_rng(7)
+    img = np.full((700, 560, 3), (244, 240, 232), np.uint8)
+    for _ in range(280):
+        cx, cy = int(rng.integers(20, 540)), int(rng.integers(20, 680))
+        colour = tuple(int(c) for c in rng.integers(0, 255, 3))
+        cv2.circle(img, (cx, cy), int(rng.integers(4, 9)), colour, -1)
+
+    out = Prism(Config()).decompose(img, source_name="confetti")
+    text_coverage = sum(l.coverage for l in out.by_kind("text"))
+    assert text_coverage < 0.02, (
+        f"confetti reported as {text_coverage * 100:.1f}% text coverage")
+
+
 def test_texture_metric_separates_photo_from_flat():
     """The photo/vector discriminator is the core of graphic classification."""
     img = make_poster()

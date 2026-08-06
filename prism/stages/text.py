@@ -301,12 +301,66 @@ def _group_blocks(lines: List[List[_Comp]]) -> List[List[_Comp]]:
     return merged
 
 
-def _validate(block: Sequence[_Comp], shape: Tuple[int, int], cfg: Config) -> bool:
+def _ink_colour_spread(image_rgb: np.ndarray, block: Sequence[_Comp]) -> float:
+    """Median LAB distance of component ink colours from the block's median.
+
+    The strongest non-OCR signal for "is this a word". Letters in a word share
+    an ink colour — that is what makes them read as a unit. Decorative clutter
+    that happens to group by size and spacing (confetti, bunting, scattered
+    ornaments) is deliberately multi-coloured, so it separates cleanly here
+    even when its geometry mimics type.
+
+    Deliberately the *median* distance, not the mean. Candidates come from
+    several binarisations including an inverted pass, so a block legitimately
+    built from dark glyphs can also carry a few background-coloured
+    components; those outliers drag a mean far enough to reject real type
+    (measured 37.9 on a clean black-on-cream headline, against a median of
+    3.0). Measured separation on the median is wide and unambiguous: real
+    text lands at 1-7, decorative clutter at 17-80.
+    """
+    if len(block) < 3:
+        return 0.0
+    lab = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2LAB)
+    means = []
+    for comp in block:
+        px = lab[comp.pixels]
+        if px.size:
+            means.append(px.reshape(-1, 3).mean(axis=0))
+    if len(means) < 3:
+        return 0.0
+    arr = np.asarray(means, dtype=np.float32)
+    median = np.median(arr, axis=0)
+    return float(np.median(np.linalg.norm(arr - median[None, :], axis=1)))
+
+
+def _baseline_deviation(block: Sequence[_Comp]) -> float:
+    """Scatter of component bottom edges, normalised by glyph height.
+
+    Type sits on a baseline; that shared bottom edge is the most reliable
+    geometric property of a line of text. Scattered decoration has no such
+    alignment. Normalising by height keeps this scale-free, and the taller
+    half is used so descenders do not masquerade as misalignment.
+    """
+    if len(block) < 3:
+        return 0.0
+    heights = np.array([c.h for c in block], dtype=np.float32)
+    tall = [c for c, hh in zip(block, heights) if hh >= np.median(heights)]
+    if len(tall) < 3:
+        return 0.0
+    bottoms = np.array([c.y1 for c in tall], dtype=np.float32)
+    ref = float(np.median([c.h for c in tall])) or 1.0
+    return float(bottoms.std() / ref)
+
+
+def _validate(block: Sequence[_Comp], shape: Tuple[int, int], cfg: Config,
+              image_rgb: Optional[np.ndarray] = None) -> bool:
     """Reject groups that are not plausibly type.
 
-    OCR cannot be used as the gate here: Tesseract is optional, and stylised
-    display faces defeat it even when installed. So validation is purely
-    geometric, which means it behaves identically with or without the optional
+    OCR cannot be used as the gate here: Tesseract is optional, stylised
+    display faces defeat it even when installed, and on busy artwork it
+    cheerfully returns noise ("VW WVYV", "vvv") for decoration — so a
+    confidence score is not evidence of text either. Validation therefore
+    stays structural, and behaves identically with or without the optional
     backends.
     """
     h, w = shape
@@ -345,11 +399,23 @@ def _validate(block: Sequence[_Comp], shape: Tuple[int, int], cfg: Config) -> bo
         if mean_h > 1e-6 and float(tall.std()) / mean_h > cfg.text_max_height_cv:
             return False
 
-    # Small blocks must be built from several glyph-like parts to qualify;
-    # a lone speck is never a word.
+    # A hard floor on size, applied regardless of component count. Previously
+    # this only gated blocks of fewer than three components, so a cluster of
+    # three specks passed while a single larger mark did not — which is how
+    # 0.02%-coverage fragments ("B", "»") reached the output as their own
+    # layers. A layer that small is never a useful asset to hand back.
     coverage = ink / float(h * w)
-    if coverage < cfg.text_min_coverage and len(block) < 3:
+    if coverage < cfg.text_min_coverage:
         return False
+
+    # Baseline alignment. Cheap, so it runs before the colour test.
+    if _baseline_deviation(block) > cfg.text_max_baseline_dev:
+        return False
+
+    # Ink colour coherence — the decisive test on decorative artwork.
+    if image_rgb is not None:
+        if _ink_colour_spread(image_rgb, block) > cfg.text_max_colour_spread:
+            return False
 
     return True
 
@@ -520,7 +586,12 @@ def _detect_classical(image_rgb: np.ndarray, cfg: Config) -> List[TextLine]:
 
     results: List[TextLine] = []
     for block in blocks:
-        if not _validate(block, (h, w), cfg):
+        # Blocks that fail validation are dropped rather than relabelled: the
+        # text stage runs first, so anything it does not claim stays in the
+        # residual and reaches the graphics stage, which classifies it on its
+        # own terms (ornament, badge, decor). Dropping here is what lets
+        # confetti come back as decoration instead of as a fake word.
+        if not _validate(block, (h, w), cfg, image_rgb):
             continue
         mask = np.zeros((h, w), np.uint8)
         for comp in block:

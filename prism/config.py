@@ -61,6 +61,17 @@ class Config:
     # over the taller half of the components (caps and ascenders) so that
     # descenders and punctuation do not penalise ordinary mixed-case text.
     text_max_height_cv: float = 0.55
+    # Max scatter of glyph bottom edges, in multiples of glyph height. Type
+    # sits on a shared baseline; scattered decoration does not.
+    text_max_baseline_dev: float = 0.42
+    # Max *median* LAB distance between component ink colours within one
+    # block. Letters in a word share an ink colour - that is what makes them
+    # read as a unit - while decorative clutter (confetti, bunting, ornaments)
+    # is deliberately multi-coloured. Measured across the sample posters the
+    # two populations are well separated: real type lands at 1-7, decorative
+    # clutter at 17-80, so 16 sits in open space between them rather than
+    # being fitted to either.
+    text_max_colour_spread: float = 16.0
     # Emit every text block as one combined "text" layer instead of one layer
     # per block. Useful when the type is wanted as a single removable overlay.
     merge_text_layers: bool = False

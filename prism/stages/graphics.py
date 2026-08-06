@@ -21,7 +21,7 @@ model did not rank first.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -104,7 +104,8 @@ def _natural_subcomponents(mask: np.ndarray, min_area: int
     return out
 
 
-def _looks_like_text(mask: np.ndarray) -> bool:
+def _looks_like_text(mask: np.ndarray, image_rgb: Optional[np.ndarray] = None,
+                     max_colour_spread: float = 16.0) -> bool:
     """Does this residual region look like a run of type rather than imagery?
 
     Type that the text stage missed — metallic or gradient-filled display
@@ -115,6 +116,13 @@ def _looks_like_text(mask: np.ndarray) -> bool:
     Words have a structural signature that photographs do not: many separate
     small components, of similar height, sitting on a common baseline, inside a
     wide and short bounding box.
+
+    Geometry alone is not sufficient, though: scattered decoration (confetti,
+    bunting, ornament fields) satisfies every one of those tests, which is how
+    a poster with no copy on it produced a dozen "text" layers. When the
+    source pixels are available the components must also share an ink colour,
+    which is what actually makes letters read as a word and what multi-coloured
+    clutter cannot fake.
     """
     ys, xs = np.nonzero(mask)
     if ys.size == 0:
@@ -152,7 +160,29 @@ def _looks_like_text(mask: np.ndarray) -> bool:
 
     # Ink is sparse inside the box — letters, not a filled shape.
     fill = float(np.count_nonzero(mask[y0:y1, x0:x1] > 127)) / float(bw * bh)
-    return 0.03 < fill < 0.55
+    if not (0.03 < fill < 0.55):
+        return False
+
+    if image_rgb is None:
+        return True
+
+    # Ink colour coherence. Median rather than mean distance, so a stray
+    # component cannot veto a genuinely uniform run of type.
+    lab = cv2.cvtColor(image_rgb[y0:y1, x0:x1], cv2.COLOR_RGB2LAB)
+    sub = _labels
+    means = []
+    for i in range(1, count):
+        if stats[i, cv2.CC_STAT_AREA] < 12:
+            continue
+        px = lab[sub == i]
+        if px.size:
+            means.append(px.reshape(-1, 3).mean(axis=0))
+    if len(means) < 3:
+        return True
+    arr = np.asarray(means, dtype=np.float32)
+    median = np.median(arr, axis=0)
+    spread = float(np.median(np.linalg.norm(arr - median[None, :], axis=1)))
+    return spread <= max_colour_spread
 
 
 def _describe(mask: np.ndarray, image_rgb: np.ndarray, texture: float
@@ -233,7 +263,7 @@ def extract_graphics(image_rgb: np.ndarray, residual: np.ndarray, cfg: Config
         # Structure beats texture. Gradient-filled display type scores as
         # photographic, so check the layout signature first — otherwise a
         # gold headline is emitted as a "subject".
-        if _looks_like_text(mask):
+        if _looks_like_text(mask, image_rgb, cfg.text_max_colour_spread):
             alpha = refine_alpha(image_rgb, mask, max(4, cfg.alpha_guided_radius // 2),
                                  cfg.alpha_guided_eps, max(1, cfg.alpha_feather - 1))
             region = GraphicRegion(alpha, KIND_TEXT, "text", 0.55)
