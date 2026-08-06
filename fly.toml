@@ -1,0 +1,39 @@
+# Fly.io — `fly launch --no-deploy` then `fly deploy`.
+app = "prism"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "7860"
+  PRISM_WORKERS = "2"
+
+[http_service]
+  internal_port = 7860
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 4
+    hard_limit = 8
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+
+# Persist downloaded model weights across deploys.
+[mounts]
+  source = "prism_models"
+  destination = "/root/.u2net"
+
+[checks.health]
+  type = "http"
+  port = 7860
+  path = "/api/health"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "40s"

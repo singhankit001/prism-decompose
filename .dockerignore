@@ -1,0 +1,28 @@
+.git
+.github
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.coverage
+htmlcov
+
+# pipeline output
+out/
+output/
+*.psd
+*-layers.zip
+
+# model weight caches — downloaded inside the image on first use
+.u2net/
+.EasyOCR/
+.cache/
+
+docs/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

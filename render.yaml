@@ -1,0 +1,18 @@
+# Render blueprint — point Render at this repo and it configures itself.
+services:
+  - type: web
+    name: prism
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 7860
+      - key: PRISM_WORKERS
+        value: 1
+      # Free tier is 512 MB, too tight for the neural path. Stay on the
+      # weights-free classical path here; remove on a paid instance.
+      - key: LAYERFORGE_CLASSICAL
+        value: 1
+    autoDeploy: true

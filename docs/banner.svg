@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-label="Prism — split any image into its parts">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#060912"/>
+      <stop offset="55%"  stop-color="#0a1020"/>
+      <stop offset="100%" stop-color="#12091f"/>
+    </linearGradient>
+    <linearGradient id="word" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#7df2ff"/>
+      <stop offset="48%"  stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#f472b6"/>
+    </linearGradient>
+    <linearGradient id="glassFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#dff1ff" stop-opacity=".30"/>
+      <stop offset="100%" stop-color="#8fb6ff" stop-opacity=".06"/>
+    </linearGradient>
+    <radialGradient id="aura1" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#4ee6ff" stop-opacity=".26"/>
+      <stop offset="100%" stop-color="#4ee6ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="aura2" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity=".24"/>
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+    <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="3.4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="340" rx="18" fill="url(#bg)"/>
+  <ellipse cx="250" cy="70"  rx="420" ry="230" fill="url(#aura1)"/>
+  <ellipse cx="980" cy="300" rx="420" ry="230" fill="url(#aura2)"/>
+
+  <!-- ============ prism mark ============ -->
+  <g transform="translate(96 74)">
+    <!-- incoming single beam -->
+    <rect x="-52" y="92" width="74" height="5" rx="2.5" fill="#eaf0ff" filter="url(#glow)"/>
+    <!-- prism body -->
+    <path d="M96 22 L166 140 L26 140 Z" fill="url(#glassFill)"
+          stroke="#dbe6ff" stroke-width="4.5" stroke-linejoin="round"/>
+    <!-- dispersed spectrum -->
+    <g filter="url(#glow)" stroke-width="5.4" stroke-linecap="round">
+      <path d="M124 108 L246 56"  stroke="#4ee6ff"/>
+      <path d="M127 116 L250 84"  stroke="#a78bfa"/>
+      <path d="M130 124 L250 116" stroke="#f472b6"/>
+      <path d="M133 132 L246 148" stroke="#ffc078"/>
+    </g>
+  </g>
+
+  <!-- ============ wordmark ============ -->
+  <g transform="translate(430 0)">
+    <text x="0" y="168" font-family="Inter, Helvetica Neue, Arial, sans-serif"
+          font-size="92" font-weight="700" letter-spacing="26" fill="url(#word)">PRISM</text>
+
+    <text x="6" y="212" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="16" letter-spacing="7.5" fill="#93a4c4">SPLIT ANY IMAGE INTO ITS PARTS</text>
+
+    <!-- layer-kind chips -->
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12.5" letter-spacing="2.4">
+      <g transform="translate(6 250)">
+        <rect x="0" y="0" width="112" height="30" rx="15" fill="#94a3b8" fill-opacity=".10" stroke="#94a3b8" stroke-opacity=".38"/>
+        <circle cx="17" cy="15" r="3.4" fill="#b6c2d4"/>
+        <text x="30" y="19.5" fill="#b6c2d4">BACKDROP</text>
+      </g>
+      <g transform="translate(128 250)">
+        <rect x="0" y="0" width="104" height="30" rx="15" fill="#4ee6ff" fill-opacity=".10" stroke="#4ee6ff" stroke-opacity=".42"/>
+        <circle cx="17" cy="15" r="3.4" fill="#4ee6ff"/>
+        <text x="30" y="19.5" fill="#4ee6ff">SUBJECT</text>
+      </g>
+      <g transform="translate(242 250)">
+        <rect x="0" y="0" width="104" height="30" rx="15" fill="#a78bfa" fill-opacity=".10" stroke="#a78bfa" stroke-opacity=".42"/>
+        <circle cx="17" cy="15" r="3.4" fill="#a78bfa"/>
+        <text x="30" y="19.5" fill="#a78bfa">GRAPHIC</text>
+      </g>
+      <g transform="translate(356 250)">
+        <rect x="0" y="0" width="76" height="30" rx="15" fill="#f472b6" fill-opacity=".10" stroke="#f472b6" stroke-opacity=".42"/>
+        <circle cx="17" cy="15" r="3.4" fill="#f472b6"/>
+        <text x="30" y="19.5" fill="#f472b6">TEXT</text>
+      </g>
+    </g>
+  </g>
+
+  <rect x="0.75" y="0.75" width="1198.5" height="338.5" rx="18"
+        fill="none" stroke="#ffffff" stroke-opacity=".09"/>
+</svg>

@@ -1,0 +1,29 @@
+services:
+  prism:
+    build: .
+    image: prism:latest
+    container_name: prism
+    ports:
+      - "7860:7860"
+    environment:
+      PORT: "7860"
+      PRISM_WORKERS: "2"
+      PRISM_MAX_UPLOAD: "26214400"   # 25 MB
+      PRISM_JOB_TTL: "3600"
+      # Set to 1 to force the weights-free classical path.
+      # LAYERFORGE_CLASSICAL: "0"
+    volumes:
+      # Persist downloaded model weights so the first decomposition is only
+      # slow once, not once per container rebuild.
+      - prism-models:/root/.u2net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:7860/api/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+volumes:
+  prism-models:

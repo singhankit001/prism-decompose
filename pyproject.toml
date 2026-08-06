@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prism-decompose"
+version = "1.0.0"
+description = "Decompose a flat image into meaningful, reusable design layers, and explore the result in 3D."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Ankit Singh" }]
+keywords = [
+    "image-decomposition", "computer-vision", "segmentation",
+    "layer-extraction", "psd", "design-tools",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "License :: OSI Approved :: MIT License",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "opencv-contrib-python>=4.8",
+    "Pillow>=10.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+# Neural backends. The pipeline runs without them and upgrades when present.
+neural = [
+    "rembg[cpu]>=2.0.50",
+    "pytesseract>=0.3.10",
+    "pytoshop>=1.2.1",
+]
+# Everything, including the heavier learned detectors.
+full = [
+    "rembg[cpu]>=2.0.50",
+    "pytesseract>=0.3.10",
+    "pytoshop>=1.2.1",
+    "easyocr>=1.7.0",
+    "simple-lama-inpainting>=0.1.0",
+]
+dev = [
+    "pytest>=7.4",
+    "psd-tools>=1.9.0",
+]
+
+[project.scripts]
+prism = "cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ankitsingh/PRISMA"
+Repository = "https://github.com/ankitsingh/PRISMA"
+
+[tool.setuptools]
+packages = ["prism", "prism.stages"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
