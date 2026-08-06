@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# LayerForge launcher.
+# Prism launcher.
 #
 #   ./run.sh              set up if needed, then start the server
 #   ./run.sh --full       also install the optional neural backends
@@ -36,7 +36,7 @@ say()  { printf '%s\n' "${c_cyan}▸${c_reset} $*"; }
 ok()   { printf '%s\n' "${c_green}✓${c_reset} $*"; }
 warn() { printf '%s\n' "${c_yellow}!${c_reset} $*"; }
 
-printf '\n%s\n' "${c_bold}LayerForge${c_reset} ${c_dim}— image → layer decomposition${c_reset}"
+printf '\n%s\n' "${c_bold}Prism${c_reset} ${c_dim}— split any image into its parts${c_reset}"
 printf '%s\n\n' "${c_dim}────────────────────────────────────────${c_reset}"
 
 # ---------------------------------------------------------------- python ----
@@ -94,7 +94,7 @@ fi
 # "not found" on machines where Tesseract was installed and working.
 python - <<'PY' 2>/dev/null || true
 try:
-    from layerforge import backends
+    from prism import backends
     path = backends.tesseract_path()
     if path:
         print(f"\033[32m✓\033[0m Tesseract \033[2m{path}\033[0m")
@@ -116,7 +116,7 @@ PY
 # on import when installed without their runtime extra.
 python - <<'PY' 2>/dev/null || true
 try:
-    from layerforge import backends
+    from prism import backends
     b = backends.describe()
     neural = b["subject"] != "saliency+grabcut"
     tag = "neural" if neural else "classical (no weights)"

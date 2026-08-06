@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LayerForge — 3D Image Decomposition</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23070b14'/%3E%3Crect x='10' y='47' width='24' height='4' rx='2' fill='%23eaf0ff'/%3E%3Cpath d='M52 24 L78 70 L26 70 Z' fill='none' stroke='%23dbe6ff' stroke-width='5' stroke-linejoin='round'/%3E%3Cg stroke-width='5' stroke-linecap='round'%3E%3Cpath d='M62 56 L94 38' stroke='%234ee6ff'/%3E%3Cpath d='M63 61 L95 52' stroke='%23a78bfa'/%3E%3Cpath d='M64 66 L94 68' stroke='%23f472b6'/%3E%3C/g%3E%3C/svg%3E" />
+<title>Prism — Split Any Image Into Its Parts</title>
 <style>
   :root {
     --bg:        #04060d;
@@ -49,15 +50,14 @@
   .ambient {
     position: fixed; inset: 0; z-index: 1; pointer-events: none;
     background:
-      radial-gradient(1100px 640px at 16% -8%,  rgba(78,230,255,.13), transparent 62%),
-      radial-gradient(980px 760px  at 88% 108%, rgba(167,139,250,.15), transparent 62%),
-      radial-gradient(700px 500px  at 62% 22%,  rgba(244,114,182,.06), transparent 60%),
-      radial-gradient(1200px 1000px at 50% 50%, transparent 30%, rgba(2,3,8,.80) 100%);
+      radial-gradient(1100px 640px at 16% -8%,  rgba(78,230,255,.05), transparent 62%),
+      radial-gradient(980px 760px  at 88% 108%, rgba(167,139,250,.06), transparent 62%),
+      radial-gradient(1200px 1000px at 50% 50%, transparent 34%, rgba(2,3,8,.72) 100%);
   }
   /* film grain — the detail that stops glass looking like flat plastic */
   .grain {
     position: fixed; inset: -200%; z-index: 2; pointer-events: none;
-    opacity: .16; mix-blend-mode: overlay;
+    opacity: .06; mix-blend-mode: overlay;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     animation: grainShift 7s steps(6) infinite;
   }
@@ -110,23 +110,25 @@
     display: flex; align-items: center; gap: 16px;
     padding: 18px 24px; pointer-events: none;
   }
-  .brand { display: flex; align-items: center; gap: 12px; pointer-events: auto; }
-  .brand-mark { width: 34px; height: 34px; position: relative; flex: none; }
-  .brand-mark i {
-    position: absolute; inset: 0; border-radius: 6px;
-    border: 1.5px solid currentColor;
-    animation: markDrift 6s ease-in-out infinite;
+  .brand { display: flex; align-items: center; gap: 13px; pointer-events: auto; }
+  .brand-mark { width: 38px; height: 38px; flex: none; overflow: visible; }
+  /* the incoming beam pulses, the dispersed spectrum shimmers behind it */
+  .brand-mark .beam   { animation: beamPulse 3.4s ease-in-out infinite; }
+  .brand-mark .ray    { animation: rayShift 3.4s ease-in-out infinite; transform-origin: 62px 58px; }
+  .brand-mark .ray:nth-of-type(1) { animation-delay: -.05s }
+  .brand-mark .ray:nth-of-type(2) { animation-delay: -.15s }
+  .brand-mark .ray:nth-of-type(3) { animation-delay: -.25s }
+  .brand-mark .ray:nth-of-type(4) { animation-delay: -.35s }
+  .brand-mark .glass  { animation: glassGlow 3.4s ease-in-out infinite; }
+  @keyframes beamPulse { 0%,100%{opacity:.55} 45%{opacity:1} }
+  @keyframes rayShift  { 0%,100%{opacity:.55} 55%{opacity:1} }
+  @keyframes glassGlow { 0%,100%{opacity:.75} 50%{opacity:1} }
+
+  .brand h1 {
+    font-size: 17px; letter-spacing: .34em; font-weight: 700; text-transform: uppercase;
   }
-  .brand-mark i:nth-child(1){ color: var(--violet); --tx:-6px; --ty:-6px; animation-delay:-.9s; opacity:.8 }
-  .brand-mark i:nth-child(2){ color: var(--cyan);   --tx:0;    --ty:0 }
-  .brand-mark i:nth-child(3){ color: var(--pink);   --tx:6px;  --ty:6px;  animation-delay:-1.8s; opacity:.7 }
-  @keyframes markDrift {
-    0%,100%{ transform: translate(var(--tx),var(--ty)) rotate(0deg) }
-    50%    { transform: translate(calc(var(--tx)*1.9),calc(var(--ty)*1.9)) rotate(6deg) }
-  }
-  .brand h1 { font-size: 16px; letter-spacing: .24em; font-weight: 700; text-transform: uppercase; }
   .brand h1 span {
-    background: linear-gradient(92deg, var(--cyan), var(--violet));
+    background: linear-gradient(92deg, var(--cyan) 0%, var(--violet) 55%, var(--pink) 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .brand small {
@@ -467,10 +469,38 @@
 
 <header>
   <div class="brand">
-    <div class="brand-mark"><i></i><i></i><i></i></div>
+    <svg class="brand-mark" viewBox="0 0 100 100" aria-label="Prism">
+      <defs>
+        <linearGradient id="pGlass" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#dff1ff" stop-opacity=".95"/>
+          <stop offset="100%" stop-color="#8fb6ff" stop-opacity=".35"/>
+        </linearGradient>
+        <filter id="pGlow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="2.2" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!-- single white beam entering -->
+      <rect class="beam" x="2" y="46.4" width="30" height="3" rx="1.5"
+            fill="#eaf0ff" filter="url(#pGlow)"/>
+
+      <!-- the prism -->
+      <path class="glass" d="M50 20 L78 68 L22 68 Z"
+            fill="url(#pGlass)" fill-opacity=".14"
+            stroke="#dbe6ff" stroke-width="2.6" stroke-linejoin="round"/>
+
+      <!-- dispersed spectrum leaving -->
+      <g filter="url(#pGlow)" stroke-width="3" stroke-linecap="round">
+        <path class="ray" d="M60 54 L99 34" stroke="#4ee6ff"/>
+        <path class="ray" d="M61 58 L100 47" stroke="#a78bfa"/>
+        <path class="ray" d="M62 62 L100 60" stroke="#f472b6"/>
+        <path class="ray" d="M63 66 L99 73" stroke="#ffc078"/>
+      </g>
+    </svg>
     <div>
-      <h1>Layer<span>Forge</span></h1>
-      <small id="tagline">image → layer decomposition</small>
+      <h1>Pri<span>sm</span></h1>
+      <small id="tagline">split any image into its parts</small>
     </div>
   </div>
   <div class="head-stats" id="headStats"></div>
@@ -479,10 +509,10 @@
 <div id="drop">
   <div class="hero glass">
     <div class="hero-eyebrow">Image Decomposition Engine</div>
-    <h2>Take any creative apart,<br><em>layer by layer.</em></h2>
-    <p>Drop in a poster, advert or social creative. LayerForge separates the
-       background plate, subjects, graphics and type — then rebuilds the stack
-       in three dimensions.</p>
+    <h2>One image in.<br><em>Every layer out.</em></h2>
+    <p>A prism splits one beam into its colours. Prism splits one flat image
+       into its background plate, subjects, graphics and type — then rebuilds
+       the stack in three dimensions.</p>
     <div class="kinds">
       <div class="kpill" style="color:#b6c2d4"><i></i>Background</div>
       <div class="kpill" style="color:var(--cyan)"><i></i>Subject</div>
@@ -567,7 +597,6 @@ import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { BokehPass }       from 'three/addons/postprocessing/BokehPass.js';
 import { ShaderPass }      from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
 
@@ -608,10 +637,10 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true 
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.0;
 
 const scene  = new THREE.Scene();
-scene.fog    = new THREE.FogExp2(0x04060d, 0.019);
+scene.fog    = new THREE.FogExp2(0x04060d, 0.0065);
 
 const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.1, 500);
 camera.position.set(0, 0, 46);
@@ -710,23 +739,23 @@ const NEBULA_FRAG = /* glsl */`
 
     float n1 = fbm(dir * 2.2 + vec3(t, t*0.6, -t*0.4));
     float n2 = fbm(dir * 4.6 + vec3(-t*0.7, t*0.3, t));
-    float clouds = smoothstep(0.34, 0.86, n1 * 0.72 + n2 * 0.38);
 
-    // two-tone nebula, cool on one side and violet on the other
-    vec3 cool   = vec3(0.05, 0.30, 0.46);
-    vec3 violet = vec3(0.26, 0.13, 0.44);
-    vec3 warm   = vec3(0.42, 0.20, 0.26);
+    // A high, narrow threshold keeps the clouds as sparse wisps. A wide one
+    // fills the whole sphere and the backdrop stops being a backdrop — it
+    // becomes a bright fog the subject has to compete with.
+    float clouds = smoothstep(0.52, 0.92, n1 * 0.72 + n2 * 0.38);
+
+    vec3 cool   = vec3(0.05, 0.24, 0.38);
+    vec3 violet = vec3(0.20, 0.10, 0.36);
     float lat = dir.y * 0.5 + 0.5;
     vec3 tint = mix(violet, cool, smoothstep(0.15, 0.85, lat));
-    tint = mix(tint, warm, smoothstep(0.55, 1.0, n2) * 0.35);
 
-    vec3 col = tint * clouds * 0.42;
+    // Deliberately dim. This is atmosphere behind the subject, not a light
+    // source: it should be felt when you look for it, not seen first.
+    vec3 col = tint * clouds * 0.11;
 
-    // deep space floor colour so it never reads as pure black
-    col += vec3(0.012, 0.018, 0.035);
-
-    // faint horizon band adds a sense of ground
-    col += vec3(0.05,0.14,0.20) * pow(1.0 - abs(dir.y), 14.0) * 0.5;
+    // deep space floor colour so it never reads as pure dead black
+    col += vec3(0.006, 0.010, 0.020);
 
     gl_FragColor = vec4(col, 1.0);
   }
@@ -767,7 +796,7 @@ const contact = new THREE.Mesh(
       uniform vec3 uColor; varying vec2 vUv;
       void main(){
         float d = length(vUv - 0.5) * 2.0;
-        float a = pow(1.0 - clamp(d, 0.0, 1.0), 3.2) * 0.30;
+        float a = pow(1.0 - clamp(d, 0.0, 1.0), 3.4) * 0.16;
         gl_FragColor = vec4(uColor, a);
       }`
   })
@@ -784,10 +813,10 @@ const GRADE_SHADER = {
   uniforms: {
     tDiffuse:   { value: null },
     uTime:      { value: 0 },
-    uVignette:  { value: 1.05 },
-    uAberration:{ value: 0.0016 },
-    uGrain:     { value: 0.045 },
-    uLift:      { value: new THREE.Color(0x0a1020) },
+    uVignette:  { value: 0.92 },
+    uAberration:{ value: 0.0007 },
+    uGrain:     { value: 0.016 },
+    uLift:      { value: new THREE.Color(0x050a14) },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -815,15 +844,15 @@ const GRADE_SHADER = {
 
       // vignette
       float vig = smoothstep(1.15, 0.28, length(off) * uVignette);
-      col *= mix(0.52, 1.0, vig);
+      col *= mix(0.66, 1.0, vig);
 
       // lifted blacks — stops the frame crushing to dead black
-      col += uLift * (1.0 - col) * 0.16;
+      col += uLift * (1.0 - col) * 0.05;
 
       // animated grain, slightly stronger in shadows like real film
       float g = rand(uv * vec2(1024.0, 768.0) + fract(uTime) * 91.7) - 0.5;
       float lum = dot(col, vec3(0.299, 0.587, 0.114));
-      col += g * uGrain * mix(1.4, 0.45, lum);
+      col += g * uGrain * mix(1.1, 0.35, lum);
 
       gl_FragColor = vec4(col, 1.0);
     }`
@@ -832,13 +861,8 @@ const GRADE_SHADER = {
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.72, 0.80, 0.78);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.38, 0.62, 0.92);
 composer.addPass(bloom);
-
-// Depth of field. focus is driven each frame from the orbit distance, so the
-// layer stack stays sharp while the starfield and nebula fall away.
-const bokeh = new BokehPass(scene, camera, { focus: 46.0, aperture: 0.00055, maxblur: 0.011 });
-composer.addPass(bokeh);
 
 const grade = new ShaderPass(GRADE_SHADER);
 composer.addPass(grade);
@@ -980,14 +1004,22 @@ const SCAN_FRAG = /* glsl */`
     vec2 uv = vUv;
     float d = abs((1.0 - uv.y) - uScan);
 
-    // chromatic split, strongest at the scan head — reads as "being read"
-    float band  = smoothstep(0.085, 0.0, d);
-    float shift = band * 0.0075;
+    // Prism dispersion at the scan head: the three channels separate the way
+    // white light fans out through glass. This is the product's namesake made
+    // literal — the image is being split into its constituents.
+    float band  = smoothstep(0.10, 0.0, d);
+    float shift = band * 0.014;
     vec4 col;
-    col.r = texture2D(uMap, uv + vec2(shift, 0.0)).r;
-    col.g = texture2D(uMap, uv).g;
-    col.b = texture2D(uMap, uv - vec2(shift, 0.0)).b;
+    col.r = texture2D(uMap, uv + vec2(shift * 1.00,  shift * 0.35)).r;
+    col.g = texture2D(uMap, uv + vec2(0.0,           0.0)).g;
+    col.b = texture2D(uMap, uv - vec2(shift * 1.00,  shift * 0.35)).b;
     col.a = texture2D(uMap, uv).a;
+
+    // spectral bloom trailing the scan head
+    vec3 spectrum = vec3(
+      smoothstep(0.05, 0.0, abs(d - 0.010)),
+      smoothstep(0.05, 0.0, abs(d - 0.026)),
+      smoothstep(0.05, 0.0, abs(d - 0.042)));
 
     // territory behind the sweep is "analysed": full colour.
     // ahead of it, desaturated and dimmed.
@@ -1001,9 +1033,10 @@ const SCAN_FRAG = /* glsl */`
     float grid = (1.0 - smoothstep(0.44, 0.5, max(g.x, g.y)));
     rgb += vec3(0.18, 0.62, 0.85) * grid * 0.13 * (1.0 - analysed);
 
-    // the scan head itself
+    // the scan head, plus its dispersed spectral tail
     float line = smoothstep(0.010, 0.0, d);
-    rgb += vec3(0.42, 0.94, 1.0) * (line * 1.9 + band * 0.30);
+    rgb += vec3(1.0) * line * 1.7;
+    rgb += spectrum * 0.34 * (1.0 - analysed);
 
     // travelling interference bars
     float bars = sin((uv.y * 220.0) - uTime * 9.0) * 0.5 + 0.5;
@@ -1119,7 +1152,7 @@ function buildReflections() {
     const mat = new THREE.MeshBasicMaterial({
       map: p.mesh.material.map,
       transparent: true, side: THREE.DoubleSide, depthWrite: false,
-      alphaTest: 0.004, toneMapped: false, opacity: 0.18,
+      alphaTest: 0.004, toneMapped: false, opacity: 0.12,
     });
     const mesh = new THREE.Mesh(p.mesh.geometry, mat);
     mesh.scale.y = -1;                       // mirror about the horizon
@@ -1137,7 +1170,7 @@ function syncReflections() {
     mesh.scale.set(src.mesh.scale.x, -src.mesh.scale.y, src.mesh.scale.z);
     // the further a layer sits above the floor, the weaker its reflection
     const height = Math.max(s.y - FLOOR_Y, 0.001);
-    mesh.material.opacity = Math.max(0, 0.24 - height * 0.010) * src.mesh.material.opacity;
+    mesh.material.opacity = Math.max(0, 0.16 - height * 0.008) * src.mesh.material.opacity;
     mesh.visible = mesh.material.opacity > 0.01;
   }
 }
@@ -1603,10 +1636,9 @@ let cinematic = true;
 $('cine').onclick = e => {
   cinematic = !cinematic;
   e.currentTarget.classList.toggle('on', cinematic);
-  bokeh.enabled = cinematic;
-  grade.uniforms.uGrain.value      = cinematic ? 0.045  : 0.014;
-  grade.uniforms.uAberration.value = cinematic ? 0.0016 : 0.0;
-  bloom.strength                   = cinematic ? 0.72   : 0.42;
+  grade.uniforms.uGrain.value      = cinematic ? 0.016  : 0.004;
+  grade.uniforms.uAberration.value = cinematic ? 0.0007 : 0.0;
+  bloom.strength                   = cinematic ? 0.38   : 0.20;
   reflectGroup.visible             = cinematic;
   contact.visible                  = cinematic;
   toast(cinematic ? 'Cinematic effects on' : 'Cinematic effects off');
@@ -1618,7 +1650,7 @@ $('again').onclick = () => {
   $('transport').classList.remove('on');
   $('hint').classList.remove('on');
   $('headStats').innerHTML = '';
-  $('tagline').textContent = 'image → layer decomposition';
+  $('tagline').textContent = 'split any image into its parts';
   clearStack();
   disposeScanPlane(false);
   controls.enabled = false;
@@ -1660,7 +1692,6 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
-  bokeh.setSize(innerWidth, innerHeight);
 });
 
 // Re-fit when the explode slider settles, so opening the stack never pushes
@@ -1691,11 +1722,6 @@ function animate(now) {
 
   // Keep the focal plane on the stack itself: focus tracks the orbit radius,
   // so the layers stay sharp while the backdrop falls away.
-  if (bokeh.enabled && bokeh.materialBokeh) {
-    const dist = camera.position.distanceTo(controls.target);
-    const bu = bokeh.materialBokeh.uniforms;
-    bu.focus.value += (dist - bu.focus.value) * Math.min(dt * 3.0, 1);
-  }
 
   /* ---- hero idle motion + cursor parallax ---- */
   if (heroPlanes.length) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LayerForge web service.
+"""Prism web service.
 
 FastAPI backend for the 3D layer explorer:
 
@@ -39,23 +39,23 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 
-from layerforge import Config, LayerForge, __version__
-from layerforge import backends
-from layerforge.exporters import export_all
-from layerforge.pipeline import STAGES
+from prism import Config, Prism, __version__
+from prism import backends
+from prism.exporters import export_all
+from prism.pipeline import STAGES
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("layerforge.app")
+log = logging.getLogger("prism.app")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-JOB_ROOT = os.path.join(tempfile.gettempdir(), "layerforge-jobs")
+JOB_ROOT = os.path.join(tempfile.gettempdir(), "prism-jobs")
 os.makedirs(JOB_ROOT, exist_ok=True)
 
-MAX_UPLOAD_BYTES = int(os.environ.get("LAYERFORGE_MAX_UPLOAD", 25 * 1024 * 1024))
-MAX_WORKERS = int(os.environ.get("LAYERFORGE_WORKERS", 2))
-JOB_TTL_SECONDS = int(os.environ.get("LAYERFORGE_JOB_TTL", 3600))
+MAX_UPLOAD_BYTES = int(os.environ.get("PRISM_MAX_UPLOAD", 25 * 1024 * 1024))
+MAX_WORKERS = int(os.environ.get("PRISM_WORKERS", 2))
+JOB_TTL_SECONDS = int(os.environ.get("PRISM_JOB_TTL", 3600))
 ALLOWED_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp",
                  "image/bmp", "image/tiff"}
 
@@ -127,7 +127,7 @@ def _run_job(job: Job, image_rgb: np.ndarray, merge_text: bool = False) -> None:
 
         cfg = Config()
         cfg.merge_text_layers = merge_text
-        engine = LayerForge(cfg)
+        engine = Prism(cfg)
         result = engine.decompose(image_rgb, source_name=os.path.splitext(job.filename)[0],
                                   progress=publish)
 
@@ -151,7 +151,7 @@ def _run_job(job: Job, image_rgb: np.ndarray, merge_text: bool = False) -> None:
 # app
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="LayerForge", version=__version__,
+app = FastAPI(title="Prism", version=__version__,
               description="Decompose an image into meaningful, reusable layers.")
 
 app.add_middleware(
@@ -271,7 +271,7 @@ async def job_download(job_id: str) -> FileResponse:
 async def index() -> HTMLResponse:
     path = os.path.join(STATIC_DIR, "index.html")
     if not os.path.isfile(path):
-        return HTMLResponse("<h1>LayerForge</h1><p>Frontend not found.</p>", 500)
+        return HTMLResponse("<h1>Prism</h1><p>Frontend not found.</p>", 500)
     with open(path, "r", encoding="utf-8") as fh:
         return HTMLResponse(fh.read())
 

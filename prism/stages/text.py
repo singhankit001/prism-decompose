@@ -36,7 +36,7 @@ from ..backends import easyocr_reader, has_tesseract
 from ..config import Config
 from ..imaging import dominant_color
 
-log = logging.getLogger("layerforge.text")
+log = logging.getLogger("prism.text")
 
 
 class TextLine:

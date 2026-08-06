@@ -27,7 +27,7 @@ from ..config import Config
 from ..imaging import (clean_mask, fill_holes, largest_components, refine_alpha,
                        split_touching, texture_score)
 
-log = logging.getLogger("layerforge.subject")
+log = logging.getLogger("prism.subject")
 
 
 # ---------------------------------------------------------------------------

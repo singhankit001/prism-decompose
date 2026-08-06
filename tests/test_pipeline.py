@@ -20,12 +20,12 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from layerforge import Config, LayerForge                      # noqa: E402
-from layerforge.exporters import (composite, export_all,        # noqa: E402
+from prism import Config, Prism                      # noqa: E402
+from prism.exporters import (composite, export_all,        # noqa: E402
                                   reconstruction_error)
-from layerforge.imaging import texture_score                    # noqa: E402
-from layerforge.stages import backdrop                          # noqa: E402
-from layerforge.types import KIND_BACKGROUND                    # noqa: E402
+from prism.imaging import texture_score                    # noqa: E402
+from prism.stages import backdrop                          # noqa: E402
+from prism.types import KIND_BACKGROUND                    # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ def make_gradient_poster(w: int = 480, h: int = 640) -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def result():
-    return LayerForge(Config()).decompose(make_poster(), source_name="synthetic")
+    return Prism(Config()).decompose(make_poster(), source_name="synthetic")
 
 
 # ---------------------------------------------------------------------------
@@ -177,14 +177,14 @@ def test_backdrop_model_follows_gradient():
 
 def test_handles_grayscale_input():
     gray = cv2.cvtColor(make_poster(), cv2.COLOR_RGB2GRAY)
-    out = LayerForge(Config()).decompose(gray, source_name="gray")
+    out = Prism(Config()).decompose(gray, source_name="gray")
     assert len(out.layers) >= 1
 
 
 def test_handles_uniform_image():
     """A featureless image must not crash; it degrades to a background layer."""
     flat = np.full((240, 240, 3), 128, np.uint8)
-    out = LayerForge(Config()).decompose(flat, source_name="flat")
+    out = Prism(Config()).decompose(flat, source_name="flat")
     assert len(out.layers) >= 1
     assert out.by_kind(KIND_BACKGROUND)
 
@@ -192,7 +192,7 @@ def test_handles_uniform_image():
 def test_handles_tiny_image():
     tiny = np.full((32, 32, 3), 200, np.uint8)
     cv2.circle(tiny, (16, 16), 7, (20, 20, 20), -1)
-    out = LayerForge(Config()).decompose(tiny, source_name="tiny")
+    out = Prism(Config()).decompose(tiny, source_name="tiny")
     assert out.width == 32 and out.height == 32
 
 
@@ -201,7 +201,7 @@ def test_downscales_large_input_but_exports_full_resolution():
     big = cv2.resize(make_poster(), (2200, 2933), interpolation=cv2.INTER_CUBIC)
     cfg = Config()
     cfg.max_working_dim = 700
-    out = LayerForge(cfg).decompose(big, source_name="big")
+    out = Prism(cfg).decompose(big, source_name="big")
     assert out.width == 2200 and out.height == 2933
     for layer in out.layers:
         assert layer.mask.shape == (2933, 2200)
@@ -211,15 +211,15 @@ def test_disabled_stages_are_respected():
     cfg = Config()
     cfg.enable_text = False
     cfg.enable_graphics = False
-    out = LayerForge(cfg).decompose(make_poster(), source_name="nostages")
+    out = Prism(cfg).decompose(make_poster(), source_name="nostages")
     assert not out.by_kind("text")
     assert not out.by_kind("graphic")
 
 
 def test_determinism():
     """Same input, same config -> same layer count. No unseeded randomness."""
-    a = LayerForge(Config()).decompose(make_poster(), source_name="a")
-    b = LayerForge(Config()).decompose(make_poster(), source_name="b")
+    a = Prism(Config()).decompose(make_poster(), source_name="a")
+    b = Prism(Config()).decompose(make_poster(), source_name="b")
     assert len(a.layers) == len(b.layers)
 
 

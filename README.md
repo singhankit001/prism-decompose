@@ -1,8 +1,8 @@
-# LayerForge
+# Prism
 
 **Decompose any flat image into meaningful, reusable design layers — and explore the result in 3D.**
 
-Give LayerForge a poster, advert or social creative. It returns the pieces a designer would have started with: a clean background plate, matted subject cut-outs, isolated graphic elements, and separated text blocks — each with an alpha channel, a bounding box, a depth index and a confidence score.
+Give Prism a poster, advert or social creative. It returns the pieces a designer would have started with: a clean background plate, matted subject cut-outs, isolated graphic elements, and separated text blocks — each with an alpha channel, a bounding box, a depth index and a confidence score.
 
 Output ships three ways: **PNG assets + JSON manifest**, a **layered `.psd`** that opens in Photoshop, and a **live 3D viewer** where the layer stack is exploded along the Z axis so you can orbit through the decomposition.
 
@@ -11,7 +11,7 @@ Output ships three ways: **PNG assets + JSON manifest**, a **layered `.psd`** th
 ## Quick start
 
 ```bash
-git clone <your-repo-url> && cd layerforge
+git clone <your-repo-url> && cd prism
 pip install -r requirements.txt
 python app.py
 ```
@@ -32,8 +32,8 @@ winget install UB-Mannheim.TesseractOCR
 Or skip local setup entirely:
 
 ```bash
-docker build -t layerforge .
-docker run -p 7860:7860 layerforge
+docker build -t prism .
+docker run -p 7860:7860 prism
 ```
 
 ### Command line
@@ -50,10 +50,10 @@ python cli.py poster.png --merge-text      # all copy as one combined layer
 ### As a library
 
 ```python
-from layerforge import LayerForge, Config
-from layerforge.exporters import export_all
+from prism import Prism, Config
+from prism.exporters import export_all
 
-result = LayerForge().decompose(rgb_array, source_name="poster")
+result = Prism().decompose(rgb_array, source_name="poster")
 export_all(result, rgb_array, "out/")
 
 for layer in result.sorted_layers():
@@ -82,7 +82,7 @@ Six stages, each independently testable, each with a graceful fallback.
 
 ## Design decisions worth calling out
 
-**Every neural backend is optional.** The pipeline runs end to end with zero downloaded weights. `layerforge/backends.py` probes each capability at import and the pipeline transparently upgrades when one is present — same code path, same output contract, no runtime surprises. The manifest and the UI both report which backend actually served each stage, so results are never ambiguous about what ran.
+**Every neural backend is optional.** The pipeline runs end to end with zero downloaded weights. `prism/backends.py` probes each capability at import and the pipeline transparently upgrades when one is present — same code path, same output contract, no runtime surprises. The manifest and the UI both report which backend actually served each stage, so results are never ambiguous about what ran.
 
 This is a deliberate robustness property, not a workaround: the system works on an air-gapped machine, in a locked-down CI runner, and on a laptop with no GPU, and gets better — not different — when you install the extras.
 
@@ -198,7 +198,7 @@ Tests use synthetic fixtures with known ground-truth structure rather than the s
 ## Project layout
 
 ```
-layerforge/
+prism/
 ├── config.py           every threshold, in one place
 ├── backends.py         optional-dependency probing, graceful degradation
 ├── types.py            Layer / Decomposition contracts

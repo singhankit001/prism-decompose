@@ -30,7 +30,7 @@ from .stages import text as text_stage
 from .types import (Decomposition, KIND_BACKGROUND, KIND_GRAPHIC, KIND_SUBJECT,
                     KIND_TEXT, Layer)
 
-log = logging.getLogger("layerforge.pipeline")
+log = logging.getLogger("prism.pipeline")
 
 ProgressFn = Callable[[str, float, str], None]
 
@@ -44,7 +44,7 @@ STAGES = [
 ]
 
 
-class LayerForge:
+class Prism:
     """Reusable, stateless-per-call image decomposition engine.
 
     One instance can serve many requests; heavy backends are cached at module
@@ -271,4 +271,4 @@ def decompose_file(path: str, config: Optional[Config] = None,
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     import os
     name = os.path.splitext(os.path.basename(path))[0]
-    return LayerForge(config).decompose(rgb, source_name=name, progress=progress)
+    return Prism(config).decompose(rgb, source_name=name, progress=progress)

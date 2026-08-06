@@ -30,7 +30,7 @@ from PIL import Image
 from .config import Config, DEFAULT_CONFIG
 from .types import Decomposition, KIND_BACKGROUND, Layer
 
-log = logging.getLogger("layerforge.exporters")
+log = logging.getLogger("prism.exporters")
 
 
 # ---------------------------------------------------------------------------

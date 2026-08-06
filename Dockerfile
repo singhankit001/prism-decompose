@@ -1,7 +1,7 @@
-# LayerForge - reproducible container for local runs or cloud deployment.
+# Prism - reproducible container for local runs or cloud deployment.
 #
-#   docker build -t layerforge .
-#   docker run -p 7860:7860 layerforge
+#   docker build -t prism .
+#   docker run -p 7860:7860 prism
 #
 # Model weights for the optional neural backends download on first use and are
 # cached in /root/.u2net. If the container has no network access the pipeline

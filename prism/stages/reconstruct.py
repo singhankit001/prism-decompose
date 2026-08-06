@@ -30,7 +30,7 @@ from ..backends import lama_inpainter
 from ..config import Config
 from ..imaging import dilate
 
-log = logging.getLogger("layerforge.reconstruct")
+log = logging.getLogger("prism.reconstruct")
 
 
 def _lama_fill(image_rgb: np.ndarray, hole: np.ndarray) -> np.ndarray | None:

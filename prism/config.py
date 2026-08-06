@@ -1,4 +1,4 @@
-"""Tunable configuration for the LayerForge decomposition pipeline.
+"""Tunable configuration for the Prism decomposition pipeline.
 
 Every threshold the pipeline depends on lives here so behaviour can be tuned
 without touching algorithm code. Defaults were chosen to generalise across

@@ -19,8 +19,8 @@ from typing import List
 import cv2
 import numpy as np
 
-from layerforge import Config, LayerForge
-from layerforge.exporters import export_all
+from prism import Config, Prism
+from prism.exporters import export_all
 
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 
@@ -50,7 +50,7 @@ def process(path: str, out_root: str, cfg: Config, quiet: bool) -> dict:
     rgb = load_rgb(path)
 
     started = time.perf_counter()
-    engine = LayerForge(cfg)
+    engine = Prism(cfg)
 
     def progress(_key: str, frac: float, message: str) -> None:
         if not quiet:
@@ -94,7 +94,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.classical:
-        os.environ["LAYERFORGE_CLASSICAL"] = "1"
+        os.environ["PRISM_CLASSICAL"] = "1"
 
     cfg = Config()
     if args.max_dim:

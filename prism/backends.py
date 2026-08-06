@@ -15,7 +15,7 @@ import logging
 import os
 from typing import Optional
 
-log = logging.getLogger("layerforge.backends")
+log = logging.getLogger("prism.backends")
 
 # Allow operators to force the classical path (useful for benchmarking and for
 # reproducing results in restricted environments).
