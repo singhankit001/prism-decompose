@@ -56,6 +56,13 @@ os.makedirs(JOB_ROOT, exist_ok=True)
 MAX_UPLOAD_BYTES = int(os.environ.get("PRISM_MAX_UPLOAD", 25 * 1024 * 1024))
 MAX_WORKERS = int(os.environ.get("PRISM_WORKERS", 2))
 JOB_TTL_SECONDS = int(os.environ.get("PRISM_JOB_TTL", 3600))
+# Segmentation work scales with the working resolution; on a CPU-throttled
+# free-tier instance (Render free is 0.1 vCPU) the library default of 1400px
+# can turn a ~10s job into a multi-minute one, long enough that the platform's
+# health check can time out mid-job and restart the container - which kills
+# the in-memory job and looks like the UI is stuck. Unset to keep the
+# library default.
+MAX_WORKING_DIM = os.environ.get("PRISM_MAX_WORKING_DIM")
 ALLOWED_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp",
                  "image/bmp", "image/tiff"}
 
@@ -127,6 +134,8 @@ def _run_job(job: Job, image_rgb: np.ndarray, merge_text: bool = False) -> None:
 
         cfg = Config()
         cfg.merge_text_layers = merge_text
+        if MAX_WORKING_DIM:
+            cfg.max_working_dim = int(MAX_WORKING_DIM)
         engine = Prism(cfg)
         result = engine.decompose(image_rgb, source_name=os.path.splitext(job.filename)[0],
                                   progress=publish)
