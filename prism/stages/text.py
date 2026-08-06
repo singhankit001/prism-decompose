@@ -43,12 +43,16 @@ class TextLine:
     """A detected block of text (one or more visual lines)."""
 
     def __init__(self, mask: np.ndarray, bbox: Tuple[int, int, int, int],
-                 score: float, string: Optional[str] = None):
+                 score: float, string: Optional[str] = None,
+                 multiline: bool = False):
         self.mask = mask
         self.bbox = bbox
         self.score = score
         self.string = string
         self.color: Optional[Tuple[int, int, int]] = None
+        # Carries the geometric single-vs-multi-line estimate through to OCR,
+        # which is deferred until after merging/capping (see detect_text).
+        self.multiline = multiline
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +500,16 @@ def _merge_easyocr_blocks(lines: List[TextLine], shape: Tuple[int, int]) -> List
 
 
 def _detect_classical(image_rgb: np.ndarray, cfg: Config) -> List[TextLine]:
+    """Geometric detection only - no OCR here.
+
+    Several binarisations are run per image on purpose (see
+    `_glyph_candidates`), which means the same headline is routinely proposed
+    two or three times before `_merge_overlapping` collapses the duplicates.
+    Recognising text means spawning a Tesseract subprocess per attempt, which
+    is the single most expensive step in the pipeline - so OCR is deferred to
+    `detect_text`, which runs it once per block that survives merging *and*
+    the final layer cap, instead of once per raw candidate.
+    """
     h, w = image_rgb.shape[:2]
     comps = _glyph_candidates(image_rgb, cfg)
     if not comps:
@@ -513,13 +527,25 @@ def _detect_classical(image_rgb: np.ndarray, cfg: Config) -> List[TextLine]:
             mask[comp.pixels] = 255
         bbox = _line_bbox(block)
         multiline = (bbox[3] - bbox[1]) > 1.8 * np.median([c.h for c in block])
-        string, conf = _recognise(image_rgb, bbox, multiline)
+        # Geometric evidence alone earns a moderate score; OCR agreement (once
+        # it runs, after merge+cap) raises it - see the recognition pass in
+        # detect_text.
+        results.append(TextLine(mask, bbox, score=0.45, multiline=multiline))
+    return results
+
+
+def _recognise_survivors(image_rgb: np.ndarray, lines: List[TextLine],
+                         cfg: Config) -> List[TextLine]:
+    """Run OCR on the final block set only - see `_detect_classical`."""
+    kept: List[TextLine] = []
+    for line in lines:
+        string, conf = _recognise(image_rgb, line.bbox, line.multiline)
         if conf < cfg.text_min_ocr_conf and not cfg.text_keep_unrecognised:
             continue
-        # Geometric evidence alone earns a moderate score; OCR agreement raises it.
-        score = 0.45 + min(conf, 100.0) / 200.0
-        results.append(TextLine(mask, bbox, score, string))
-    return results
+        line.string = string
+        line.score = 0.45 + min(conf, 100.0) / 200.0
+        kept.append(line)
+    return kept
 
 
 def _merge_overlapping(lines: List[TextLine], shape: Tuple[int, int]) -> List[TextLine]:
@@ -568,10 +594,13 @@ def _merge_overlapping(lines: List[TextLine], shape: Tuple[int, int]) -> List[Te
             continue
         bbox = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
         # Keep the most confident transcription rather than concatenating
-        # several partial reads of the same words.
+        # several partial reads of the same words. When OCR hasn't run yet
+        # (classical path - see detect_text), every candidate's string is
+        # still None and this just picks a representative geometry.
         best = max(group, key=lambda t: (t.score, len(t.string or "")))
         score = float(max(t.score for t in group))
-        merged.append(TextLine(mask, bbox, score, best.string))
+        multiline = any(t.multiline for t in group)
+        merged.append(TextLine(mask, bbox, score, best.string, multiline))
     return merged
 
 
@@ -581,15 +610,23 @@ def detect_text(image_rgb: np.ndarray, cfg: Config) -> List[TextLine]:
         return []
 
     lines = _detect_easyocr(image_rgb, cfg)
+    used_easyocr = bool(lines)
     if not lines:
         lines = _detect_classical(image_rgb, cfg)
 
     lines = _merge_overlapping(lines, image_rgb.shape[:2])
 
+    # Largest first - headlines lead the layer list. Cap the count *before*
+    # OCR runs for the classical path, since each attempt is a Tesseract
+    # subprocess spawn and by far the most expensive step per block; there is
+    # no reason to recognise text in a block that the cap would discard.
+    lines.sort(key=lambda l: -int(np.count_nonzero(l.mask)))
+    lines = lines[: cfg.max_text_layers]
+
+    if not used_easyocr:
+        lines = _recognise_survivors(image_rgb, lines, cfg)
+
     for line in lines:
         line.color = dominant_color(image_rgb, line.mask)
 
-    # Largest first - headlines lead the layer list. Cap the count so a noisy
-    # image cannot produce an unusable number of layers.
-    lines.sort(key=lambda l: -int(np.count_nonzero(l.mask)))
-    return lines[: cfg.max_text_layers]
+    return lines
