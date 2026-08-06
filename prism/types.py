@@ -77,8 +77,15 @@ class Layer:
 
     @property
     def is_empty(self) -> bool:
-        """True when nothing meaningful survives — used to prune after stripping."""
-        return not bool(np.any(self.mask > 8))
+        """True when nothing meaningful survives — used to prune after stripping.
+
+        Matches the same >127 threshold as `area`. A layer can be left with
+        only faint sub-threshold residue after front-to-back alpha stripping
+        (occlusion trims it to a thin, near-zero edge everywhere); using a
+        looser threshold here let such layers survive pruning with a valid
+        bbox but zero solid area, which is a contradiction downstream.
+        """
+        return not bool(np.any(self.mask > 127))
 
     def compute_bbox(self) -> Optional[Tuple[int, int, int, int]]:
         self.bbox = _bbox_from_mask(self.mask)
