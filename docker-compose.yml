@@ -10,8 +10,11 @@ services:
       PRISM_WORKERS: "2"
       PRISM_MAX_UPLOAD: "26214400"   # 25 MB
       PRISM_JOB_TTL: "3600"
-      # Set to 1 to force the weights-free classical path.
-      # LAYERFORGE_CLASSICAL: "0"
+      # The Dockerfile defaults to the classical path (safe for small hosting
+      # tiers). Local docker-compose runs assume more RAM is available, so
+      # opt back into the neural backends here; weights persist in the named
+      # volume below. Set to "1" to force the weights-free path instead.
+      LAYERFORGE_CLASSICAL: "0"
     volumes:
       # Persist downloaded model weights so the first decomposition is only
       # slow once, not once per container rebuild.

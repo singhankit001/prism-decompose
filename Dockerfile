@@ -12,7 +12,17 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PORT=7860
+    PORT=7860 \
+    PRISM_WORKERS=1 \
+    LAYERFORGE_CLASSICAL=1
+# Safe-by-default: most free/small hosting tiers (Render free, HF free CPU,
+# a bare `docker run`) have well under 1 GB of RAM, and rembg's ONNX runtime
+# plus its ~170 MB of weights can OOM-kill a 512 MB container the moment a
+# real image is uploaded, with no Python traceback since the kernel just
+# SIGKILLs the process. Defaulting to the weights-free classical path here
+# means a plain `docker build && run` is safe out of the box. Anything with
+# more RAM to spare (docker-compose, a paid instance) opts back into the
+# neural path explicitly by overriding these two at the platform level.
 
 # libgl/libglib: OpenCV runtime. tesseract: text recognition.
 RUN apt-get update && apt-get install -y --no-install-recommends \
