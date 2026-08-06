@@ -42,7 +42,10 @@ docker run -p 7860:7860 layerforge
 python cli.py poster.png -o out/           # one image
 python cli.py ./images -o out/ --workers 4 # a directory, in parallel
 python cli.py poster.png --classical       # force the no-weights path
+python cli.py poster.png --merge-text      # all copy as one combined layer
 ```
+
+**Text: separate blocks or one layer?** By default each text block becomes its own asset, matching how a layered source file is actually built and preserving more information — a reviewer can merge layers, but cannot unmerge them. Pass `--merge-text` (or tick the toggle on the landing page) to emit all copy as a single removable overlay instead. Consolidation runs after assembly, so it also catches type recovered from the residual by the graphics stage.
 
 ### As a library
 
@@ -93,7 +96,19 @@ This is a deliberate robustness property, not a workaround: the system works on 
 
 Each layer becomes a textured plane positioned from its manifest bounding box, so the stack reproduces the original composition exactly — then separates along Z by its computed depth.
 
-Orbit and zoom with the mouse. **Explode** sets the depth spacing; **Spread** fans the layers into an arc so dense stacks stay legible. Hovering isolates a layer and dims the rest; clicking focuses the camera on it. **Flatten** snaps back to a head-on view of the reassembled composition. Rendering is Three.js with unlit planes (source pixels shown faithfully rather than re-shaded), bloom post-processing, exponential fog and a drifting particle field.
+Orbit and zoom with the mouse. **Explode** sets the depth spacing; **Spread** fans the layers into an arc so dense stacks stay legible. Hovering isolates a layer and dims the rest; clicking focuses the camera on it. **Flatten** snaps back to a head-on view of the reassembled composition. **Cinematic FX** toggles the heavier effects.
+
+Layer planes are unlit by design — source pixels are shown faithfully rather than re-shaded, because the point is to inspect the decomposition, not to relight it. Everything around them is doing the atmospheric work:
+
+- a **volumetric nebula** backdrop (fbm-noise shader sphere) so the scene has depth instead of flat black
+- **mirrored floor reflections** that fade with height above the horizon, plus a contact light pool under the stack — mirroring the flat planes costs a fraction of a true reflection render pass
+- **depth of field** whose focal plane tracks the orbit radius, keeping the stack sharp while the backdrop falls away
+- a single **grade pass** carrying vignette, lateral chromatic aberration, lifted blacks and animated film grain
+- bloom, exponential fog, and a two-layer parallax starfield
+
+When an image is uploaded it becomes a 3D plate that a **scanline sweeps** while the pipeline runs — chromatic split at the scan head, a measurement grid over unanalysed territory, and full colour restored behind it. The plate dissolves as the decomposed stack takes its place.
+
+Camera framing is computed from the stack's bounding box rather than hardcoded, so any aspect ratio fits. Scripted camera moves are cancellable and yield the instant you touch the scene, and a click is distinguished from an orbit-drag so rotating never selects a layer by accident.
 
 Pipeline progress streams over server-sent events, so each stage lights up as it actually completes rather than animating a fake progress bar. If SSE is blocked by a proxy, the client falls back to polling automatically.
 

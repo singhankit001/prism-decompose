@@ -537,6 +537,9 @@
   <div class="icon-btn" id="flat" data-tip="Flatten">
     <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9.5h17M3.5 15h17"/></svg>
   </div>
+  <div class="icon-btn on" id="cine" data-tip="Cinematic FX">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3"/><path d="M12 3.5v5M12 15.5v5M3.5 12h5M15.5 12h5"/></svg>
+  </div>
   <div class="divider"></div>
   <div class="icon-btn" id="download" data-tip="Download ZIP">
     <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7.5 10.5 12 15l4.5-4.5"/><path d="M4 19h16"/></svg>
@@ -564,6 +567,8 @@ import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { BokehPass }       from 'three/addons/postprocessing/BokehPass.js';
+import { ShaderPass }      from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
 
 /* ========================================================================
@@ -662,20 +667,181 @@ function makeStars(count, spread, size, color, opacity) {
     blending: THREE.AdditiveBlending, sizeAttenuation: true
   }));
 }
-const starsFar  = makeStars(3000, 280, 0.30, 0x9fc4ff, 0.5);
-const starsNear = makeStars(800,  160, 0.55, 0x4ee6ff, 0.38);
+const starsFar  = makeStars(3200, 300, 0.28, 0x9fc4ff, 0.5);
+const starsNear = makeStars(900,  170, 0.52, 0x4ee6ff, 0.38);
 scene.add(starsFar, starsNear);
 
-const grid = new THREE.GridHelper(200, 64, 0x1d4361, 0x0f2233);
-grid.material.transparent = true; grid.material.opacity = 0.2;
-grid.position.y = -24;
+/* ---- volumetric nebula backdrop -----------------------------------------
+   A shader sphere rendered from the inside. Flat black reads as "nothing
+   loaded"; slowly drifting fbm noise gives the scene depth and a sense of
+   volume for the layers to sit inside.                                     */
+const NEBULA_FRAG = /* glsl */`
+  uniform float uTime;
+  varying vec3 vPos;
+
+  // cheap 3D value noise + fbm
+  vec3 hash3(vec3 p){
+    p = vec3(dot(p,vec3(127.1,311.7,74.7)),
+             dot(p,vec3(269.5,183.3,246.1)),
+             dot(p,vec3(113.5,271.9,124.6)));
+    return fract(sin(p)*43758.5453123);
+  }
+  float noise(vec3 p){
+    vec3 i = floor(p), f = fract(p);
+    f = f*f*(3.0-2.0*f);
+    float n = 0.0;
+    for(int x=0;x<2;x++) for(int y=0;y<2;y++) for(int z=0;z<2;z++){
+      vec3 o = vec3(float(x),float(y),float(z));
+      float v = hash3(i+o).x;
+      vec3 w = mix(1.0-f, f, o);
+      n += v * w.x * w.y * w.z;
+    }
+    return n;
+  }
+  float fbm(vec3 p){
+    float v = 0.0, a = 0.5;
+    for(int i=0;i<5;i++){ v += a*noise(p); p *= 2.03; a *= 0.5; }
+    return v;
+  }
+
+  void main(){
+    vec3 dir = normalize(vPos);
+    float t = uTime * 0.012;
+
+    float n1 = fbm(dir * 2.2 + vec3(t, t*0.6, -t*0.4));
+    float n2 = fbm(dir * 4.6 + vec3(-t*0.7, t*0.3, t));
+    float clouds = smoothstep(0.34, 0.86, n1 * 0.72 + n2 * 0.38);
+
+    // two-tone nebula, cool on one side and violet on the other
+    vec3 cool   = vec3(0.05, 0.30, 0.46);
+    vec3 violet = vec3(0.26, 0.13, 0.44);
+    vec3 warm   = vec3(0.42, 0.20, 0.26);
+    float lat = dir.y * 0.5 + 0.5;
+    vec3 tint = mix(violet, cool, smoothstep(0.15, 0.85, lat));
+    tint = mix(tint, warm, smoothstep(0.55, 1.0, n2) * 0.35);
+
+    vec3 col = tint * clouds * 0.42;
+
+    // deep space floor colour so it never reads as pure black
+    col += vec3(0.012, 0.018, 0.035);
+
+    // faint horizon band adds a sense of ground
+    col += vec3(0.05,0.14,0.20) * pow(1.0 - abs(dir.y), 14.0) * 0.5;
+
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+const nebula = new THREE.Mesh(
+  new THREE.SphereGeometry(240, 48, 32),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      varying vec3 vPos;
+      void main(){ vPos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: NEBULA_FRAG,
+  })
+);
+scene.add(nebula);
+
+/* ---- horizon grid + contact glow ---------------------------------------- */
+const FLOOR_Y = -11.5;
+
+const grid = new THREE.GridHelper(240, 72, 0x2a5f88, 0x12283c);
+grid.material.transparent = true; grid.material.opacity = 0.16;
+grid.position.y = FLOOR_Y;
 scene.add(grid);
 
-/* ---- post ---- */
+// soft pool of light directly beneath the stack, so it looks grounded
+const contact = new THREE.Mesh(
+  new THREE.PlaneGeometry(46, 46),
+  new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uColor: { value: new THREE.Color(0x3fd8ff) } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `
+      uniform vec3 uColor; varying vec2 vUv;
+      void main(){
+        float d = length(vUv - 0.5) * 2.0;
+        float a = pow(1.0 - clamp(d, 0.0, 1.0), 3.2) * 0.30;
+        gl_FragColor = vec4(uColor, a);
+      }`
+  })
+);
+contact.rotation.x = -Math.PI / 2;
+contact.position.y = FLOOR_Y + 0.02;
+scene.add(contact);
+
+/* ---- post-processing chain ----------------------------------------------
+   render -> bloom -> depth of field -> grade -> output
+   The grade pass carries vignette, chromatic aberration and animated grain;
+   folding them into one fragment shader keeps it to a single extra draw.  */
+const GRADE_SHADER = {
+  uniforms: {
+    tDiffuse:   { value: null },
+    uTime:      { value: 0 },
+    uVignette:  { value: 1.05 },
+    uAberration:{ value: 0.0016 },
+    uGrain:     { value: 0.045 },
+    uLift:      { value: new THREE.Color(0x0a1020) },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse;
+    uniform float uTime, uVignette, uAberration, uGrain;
+    uniform vec3 uLift;
+    varying vec2 vUv;
+
+    float rand(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233))) * 43758.5453); }
+
+    void main(){
+      vec2 uv = vUv;
+      vec2 off = (uv - 0.5);
+      float r2 = dot(off, off);
+
+      // lateral chromatic aberration: zero at centre, grows toward the edge,
+      // which is how real glass behaves
+      vec2 dir = off * r2 * uAberration * 40.0;
+      vec3 col;
+      col.r = texture2D(tDiffuse, uv + dir).r;
+      col.g = texture2D(tDiffuse, uv).g;
+      col.b = texture2D(tDiffuse, uv - dir).b;
+
+      // vignette
+      float vig = smoothstep(1.15, 0.28, length(off) * uVignette);
+      col *= mix(0.52, 1.0, vig);
+
+      // lifted blacks — stops the frame crushing to dead black
+      col += uLift * (1.0 - col) * 0.16;
+
+      // animated grain, slightly stronger in shadows like real film
+      float g = rand(uv * vec2(1024.0, 768.0) + fract(uTime) * 91.7) - 0.5;
+      float lum = dot(col, vec3(0.299, 0.587, 0.114));
+      col += g * uGrain * mix(1.4, 0.45, lum);
+
+      gl_FragColor = vec4(col, 1.0);
+    }`
+};
+
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.60, 0.75, 0.82);
+
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.72, 0.80, 0.78);
 composer.addPass(bloom);
+
+// Depth of field. focus is driven each frame from the orbit distance, so the
+// layer stack stays sharp while the starfield and nebula fall away.
+const bokeh = new BokehPass(scene, camera, { focus: 46.0, aperture: 0.00055, maxblur: 0.011 });
+composer.addPass(bokeh);
+
+const grade = new ShaderPass(GRADE_SHADER);
+composer.addPass(grade);
 composer.addPass(new OutputPass());
 
 /* ========================================================================
@@ -930,6 +1096,52 @@ function disposeScanPlane(animate = true) {
 const stackGroup = new THREE.Group();
 scene.add(stackGroup);
 
+/* Mirrored copy of the stack, rendered below the horizon.
+   A true Reflector render-target costs a second full scene pass; mirroring
+   the plane meshes and fading them with distance gives the same read for a
+   fraction of the cost, because the layers are flat and axis-aligned. */
+const reflectGroup = new THREE.Group();
+scene.add(reflectGroup);
+let reflections = [];
+
+function clearReflections() {
+  for (const r of reflections) {
+    reflectGroup.remove(r.mesh);
+    r.mesh.geometry.dispose();
+    r.mesh.material.dispose();
+  }
+  reflections = [];
+}
+
+function buildReflections() {
+  clearReflections();
+  for (const p of planes) {
+    const mat = new THREE.MeshBasicMaterial({
+      map: p.mesh.material.map,
+      transparent: true, side: THREE.DoubleSide, depthWrite: false,
+      alphaTest: 0.004, toneMapped: false, opacity: 0.18,
+    });
+    const mesh = new THREE.Mesh(p.mesh.geometry, mat);
+    mesh.scale.y = -1;                       // mirror about the horizon
+    reflectGroup.add(mesh);
+    reflections.push({ mesh, src: p });
+  }
+}
+
+/** Keep each reflection glued to its source, fading with height above floor. */
+function syncReflections() {
+  for (const { mesh, src } of reflections) {
+    const s = src.mesh.position;
+    mesh.position.set(s.x, 2 * FLOOR_Y - s.y, s.z);
+    mesh.rotation.copy(src.mesh.rotation);
+    mesh.scale.set(src.mesh.scale.x, -src.mesh.scale.y, src.mesh.scale.z);
+    // the further a layer sits above the floor, the weaker its reflection
+    const height = Math.max(s.y - FLOOR_Y, 0.001);
+    mesh.material.opacity = Math.max(0, 0.24 - height * 0.010) * src.mesh.material.opacity;
+    mesh.visible = mesh.material.opacity > 0.01;
+  }
+}
+
 const CANVAS_H = 16;
 let planes = [], manifest = null, jobId = null;
 let selected = null, hovered = null;
@@ -942,6 +1154,7 @@ const KIND_COLOR = {
 };
 
 function clearStack() {
+  clearReflections();
   for (const p of planes) {
     stackGroup.remove(p.mesh);
     p.mesh.geometry.dispose();
@@ -996,6 +1209,7 @@ async function buildStack(mf, id) {
   })));
 
   planes.sort((a, b) => a.baseZ - b.baseZ);
+  buildReflections();
   layoutStack(false);
   // layers materialise back-to-front, so you see the stack assemble
   planes.forEach((p, i) => tween(0, 1, 620, v => { p.mesh.material.opacity = v; },
@@ -1381,6 +1595,23 @@ $('flat').onclick = () => {
   layoutStack(true);
   setTimeout(() => frameStack(900), 60);
 };
+/* Cinematic FX toggle.
+   Depth of field renders its own depth pass, and the layer planes are
+   transparent — so on some content the defocus can read as mush rather than
+   depth. Rather than guess, this makes it switchable at runtime. */
+let cinematic = true;
+$('cine').onclick = e => {
+  cinematic = !cinematic;
+  e.currentTarget.classList.toggle('on', cinematic);
+  bokeh.enabled = cinematic;
+  grade.uniforms.uGrain.value      = cinematic ? 0.045  : 0.014;
+  grade.uniforms.uAberration.value = cinematic ? 0.0016 : 0.0;
+  bloom.strength                   = cinematic ? 0.72   : 0.42;
+  reflectGroup.visible             = cinematic;
+  contact.visible                  = cinematic;
+  toast(cinematic ? 'Cinematic effects on' : 'Cinematic effects off');
+};
+
 $('download').onclick = () => { if (jobId) location.href = `/api/jobs/${jobId}/download`; };
 $('again').onclick = () => {
   $('panel').classList.remove('on');
@@ -1429,6 +1660,7 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
+  bokeh.setSize(innerWidth, innerHeight);
 });
 
 // Re-fit when the explode slider settles, so opening the stack never pushes
@@ -1452,6 +1684,18 @@ function animate(now) {
   starsFar.rotation.y  += dt * 0.006;
   starsNear.rotation.y -= dt * 0.011;
   starsNear.rotation.x += dt * 0.004;
+
+  // drifting nebula + animated grain
+  nebula.material.uniforms.uTime.value = now / 1000;
+  grade.uniforms.uTime.value = now / 1000;
+
+  // Keep the focal plane on the stack itself: focus tracks the orbit radius,
+  // so the layers stay sharp while the backdrop falls away.
+  if (bokeh.enabled && bokeh.materialBokeh) {
+    const dist = camera.position.distanceTo(controls.target);
+    const bu = bokeh.materialBokeh.uniforms;
+    bu.focus.value += (dist - bu.focus.value) * Math.min(dt * 3.0, 1);
+  }
 
   /* ---- hero idle motion + cursor parallax ---- */
   if (heroPlanes.length) {
@@ -1495,6 +1739,8 @@ function animate(now) {
     }
     canvas.style.cursor = hit ? 'pointer' : 'default';
   }
+
+  if (reflections.length) syncReflections();
 
   composer.render();
 }
