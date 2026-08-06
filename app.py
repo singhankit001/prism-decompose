@@ -121,12 +121,20 @@ def _purge_expired() -> None:
 # ---------------------------------------------------------------------------
 
 def _run_job(job: Job, image_rgb: np.ndarray, merge_text: bool = False) -> None:
+    t_start = time.time()
+
     def publish(stage: str, frac: float, message: str) -> None:
         job.stage = stage
         job.progress = frac
         job.message = message
         job.version += 1
         job.events.append({"stage": stage, "progress": frac, "message": message})
+        # Without this, a slow-but-alive job and a silently crashed one look
+        # identical from outside (both just stop advancing in the UI) - there
+        # was no way to tell from the platform logs which one was happening,
+        # or which stage was actually the slow one on real hosting hardware.
+        log.info("job %s +%5.1fs stage=%-10s frac=%.2f %s",
+                 job.id, time.time() - t_start, stage, frac, message)
 
     try:
         job.status = "running"
@@ -147,7 +155,9 @@ def _run_job(job: Job, image_rgb: np.ndarray, merge_text: bool = False) -> None:
         job.manifest = manifest
         job.status = "done"
         publish("done", 1.0, "Complete")
-        log.info("job %s finished: %d layers", job.id, manifest.get("layer_count", 0))
+        log.info("job %s finished in %.1fs: %d layers, timings=%s",
+                 job.id, time.time() - t_start, manifest.get("layer_count", 0),
+                 result.timings)
     except Exception as exc:  # pragma: no cover
         log.exception("job %s failed", job.id)
         job.status = "error"
