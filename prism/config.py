@@ -45,6 +45,11 @@ class Config:
     text_max_swt_cv: float = 0.65
     # Horizontal gap (in multiples of glyph height) still merged into one line.
     text_line_gap_ratio: float = 1.1
+    # Run OCR to transcribe detected text. Detection, cut-out and layering all
+    # work without it - only the recognised string is lost - and each block
+    # costs a Tesseract subprocess, so this is the first thing to trade away
+    # on CPU-constrained hosting.
+    text_recognise: bool = True
     # Minimum OCR confidence for a grouped line to be kept when OCR is used.
     text_min_ocr_conf: float = 30.0
     # Keep geometrically-valid lines even when OCR fails (stylised display type
@@ -124,6 +129,12 @@ class Config:
     crop_padding: int = 2
     export_psd: bool = True
     png_optimize: bool = False
+    # zlib level for layer PNGs. The default (6) spends most of the export
+    # budget squeezing files that are about to be thrown away after one view;
+    # level 1 encodes several times faster for a modest size increase, which
+    # is the right trade for an interactive service. Raise it for archival
+    # batch exports where wall-clock time doesn't matter.
+    png_compress_level: int = 1
 
     # ---- misc ---------------------------------------------------------------
     random_seed: int = 17

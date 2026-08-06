@@ -16,6 +16,7 @@ services:
       # defaults here; weights persist in the named volume below.
       LAYERFORGE_CLASSICAL: "0"
       PRISM_MAX_WORKING_DIM: "1400"
+      PRISM_FAST: "0"          # keep OCR transcription + full GrabCut refinement
     volumes:
       # Persist downloaded model weights so the first decomposition is only
       # slow once, not once per container rebuild.

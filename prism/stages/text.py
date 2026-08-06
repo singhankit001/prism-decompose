@@ -623,7 +623,7 @@ def detect_text(image_rgb: np.ndarray, cfg: Config) -> List[TextLine]:
     lines.sort(key=lambda l: -int(np.count_nonzero(l.mask)))
     lines = lines[: cfg.max_text_layers]
 
-    if not used_easyocr:
+    if not used_easyocr and cfg.text_recognise:
         lines = _recognise_survivors(image_rgb, lines, cfg)
 
     for line in lines:

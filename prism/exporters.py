@@ -37,6 +37,31 @@ log = logging.getLogger("prism.exporters")
 # pixel extraction
 # ---------------------------------------------------------------------------
 
+class RgbaCache:
+    """Memoises `layer_rgba` for one export run.
+
+    Every consumer needs the same pixels: write_layers, the recomposite
+    preview, the PSNR check (another composite) and the PSD writer. Computed
+    fresh each time that was 82 un-premultiply passes over a 21-layer stack -
+    four times more work than necessary, and the un-premultiply is a
+    float32 round-trip over the full canvas per layer.
+
+    Keyed by layer id, which is unique per decomposition.
+    """
+
+    def __init__(self, decomp: Decomposition, source_rgb: np.ndarray):
+        self._decomp = decomp
+        self._source = source_rgb
+        self._cache: Dict[str, np.ndarray] = {}
+
+    def get(self, layer: Layer) -> np.ndarray:
+        hit = self._cache.get(layer.id)
+        if hit is None:
+            hit = layer_rgba(self._decomp, layer, self._source)
+            self._cache[layer.id] = hit
+        return hit
+
+
 def layer_rgba(decomp: Decomposition, layer: Layer, source_rgb: np.ndarray) -> np.ndarray:
     """Full-canvas RGBA pixels for one layer."""
     if layer.kind == KIND_BACKGROUND:
@@ -87,13 +112,20 @@ def _safe_name(text: str, fallback: str) -> str:
 
 
 def write_layers(decomp: Decomposition, source_rgb: np.ndarray, out_dir: str,
-                 cfg: Config = DEFAULT_CONFIG) -> Dict[str, object]:
-    """Write per-layer PNGs plus manifest.json into `out_dir`."""
+                 cfg: Config = DEFAULT_CONFIG,
+                 rgba_cache: Optional[RgbaCache] = None,
+                 preview: Optional[np.ndarray] = None) -> Dict[str, object]:
+    """Write per-layer PNGs plus manifest.json into `out_dir`.
+
+    `preview` accepts an already-composited recomposite so callers that also
+    need it for a quality metric don't pay for stacking the whole thing twice.
+    """
     layers_dir = os.path.join(out_dir, "layers")
     os.makedirs(layers_dir, exist_ok=True)
+    cache = rgba_cache or RgbaCache(decomp, source_rgb)
 
     for index, layer in enumerate(decomp.sorted_layers()):
-        rgba = layer_rgba(decomp, layer, source_rgb)
+        rgba = cache.get(layer)
         offset = (0, 0)
         if cfg.crop_layers and layer.kind != KIND_BACKGROUND:
             rgba, offset = crop_to_bbox(rgba, layer.bbox, cfg.crop_padding)
@@ -101,7 +133,8 @@ def write_layers(decomp: Decomposition, source_rgb: np.ndarray, out_dir: str,
         stem = _safe_name(f"{index:02d}-{layer.kind}-{layer.label}", f"{index:02d}-layer")
         filename = f"{stem}.png"
         Image.fromarray(rgba, mode="RGBA").save(
-            os.path.join(layers_dir, filename), optimize=cfg.png_optimize)
+            os.path.join(layers_dir, filename), optimize=cfg.png_optimize,
+            compress_level=cfg.png_compress_level)
 
         layer.filename = f"layers/{filename}"
         layer.meta["offset"] = list(offset)
@@ -109,9 +142,12 @@ def write_layers(decomp: Decomposition, source_rgb: np.ndarray, out_dir: str,
 
     # A flattened preview makes it obvious at a glance whether the stack
     # recomposites to the original.
-    preview = composite(decomp, source_rgb, cfg)
-    Image.fromarray(preview).save(os.path.join(out_dir, "recomposite.png"))
-    Image.fromarray(source_rgb).save(os.path.join(out_dir, "source.png"))
+    if preview is None:
+        preview = composite(decomp, source_rgb, cfg, cache)
+    Image.fromarray(preview).save(os.path.join(out_dir, "recomposite.png"),
+                                  compress_level=cfg.png_compress_level)
+    Image.fromarray(source_rgb).save(os.path.join(out_dir, "source.png"),
+                                     compress_level=cfg.png_compress_level)
 
     manifest = decomp.to_manifest()
     manifest["recomposite"] = "recomposite.png"
@@ -122,7 +158,8 @@ def write_layers(decomp: Decomposition, source_rgb: np.ndarray, out_dir: str,
 
 
 def composite(decomp: Decomposition, source_rgb: np.ndarray,
-              cfg: Config = DEFAULT_CONFIG) -> np.ndarray:
+              cfg: Config = DEFAULT_CONFIG,
+              rgba_cache: Optional[RgbaCache] = None) -> np.ndarray:
     """Stack all layers back together - a built-in correctness check.
 
     If decomposition is sound, this closely reproduces the input. The residual
@@ -133,19 +170,26 @@ def composite(decomp: Decomposition, source_rgb: np.ndarray,
     if decomp.plate is not None:
         canvas[:] = decomp.plate.astype(np.float32)
 
+    cache = rgba_cache or RgbaCache(decomp, source_rgb)
     for layer in decomp.sorted_layers():
         if layer.kind == KIND_BACKGROUND:
             continue
-        rgba = layer_rgba(decomp, layer, source_rgb)
+        rgba = cache.get(layer)
         alpha = (rgba[:, :, 3:4].astype(np.float32) / 255.0)
         canvas = rgba[:, :, :3].astype(np.float32) * alpha + canvas * (1.0 - alpha)
 
     return np.clip(canvas, 0, 255).astype(np.uint8)
 
 
-def reconstruction_error(decomp: Decomposition, source_rgb: np.ndarray) -> Dict[str, float]:
-    """Mean absolute error and PSNR between recomposite and source."""
-    recon = composite(decomp, source_rgb)
+def reconstruction_error(decomp: Decomposition, source_rgb: np.ndarray,
+                         recon: Optional[np.ndarray] = None) -> Dict[str, float]:
+    """Mean absolute error and PSNR between recomposite and source.
+
+    Accepts an already-computed recomposite; export_all passes the preview it
+    just wrote rather than compositing the entire stack a second time.
+    """
+    if recon is None:
+        recon = composite(decomp, source_rgb)
     diff = np.abs(recon.astype(np.float32) - source_rgb.astype(np.float32))
     mae = float(diff.mean())
     mse = float((diff ** 2).mean())
@@ -157,7 +201,8 @@ def reconstruction_error(decomp: Decomposition, source_rgb: np.ndarray) -> Dict[
 # PSD
 # ---------------------------------------------------------------------------
 
-def write_psd(decomp: Decomposition, source_rgb: np.ndarray, path: str) -> bool:
+def write_psd(decomp: Decomposition, source_rgb: np.ndarray, path: str,
+              rgba_cache: Optional[RgbaCache] = None) -> bool:
     """Write a layered PSD. Returns False when pytoshop is unavailable."""
     try:
         import pytoshop
@@ -170,9 +215,10 @@ def write_psd(decomp: Decomposition, source_rgb: np.ndarray, path: str) -> bool:
     try:
         h, w = source_rgb.shape[:2]
         psd_layers = []
+        cache = rgba_cache or RgbaCache(decomp, source_rgb)
         # pytoshop stacks the list bottom-last, so build front-to-back.
         for layer in sorted(decomp.sorted_layers(), key=lambda l: -l.z):
-            rgba = layer_rgba(decomp, layer, source_rgb)
+            rgba = cache.get(layer)
 
             # Real PSD layers are stored cropped to their own bounds with an
             # offset, not as full-canvas planes. Matching that keeps the file a
@@ -245,15 +291,29 @@ def bundle_zip(out_dir: str, zip_path: str) -> str:
 
 
 def export_all(decomp: Decomposition, source_rgb: np.ndarray, out_dir: str,
-               cfg: Config = DEFAULT_CONFIG, make_zip: bool = True) -> Dict[str, object]:
-    """Run every writer and return the manifest, augmented with quality metrics."""
-    os.makedirs(out_dir, exist_ok=True)
-    manifest = write_layers(decomp, source_rgb, out_dir, cfg)
-    manifest["quality"] = reconstruction_error(decomp, source_rgb)
+               cfg: Config = DEFAULT_CONFIG, make_zip: bool = True,
+               make_psd: Optional[bool] = None) -> Dict[str, object]:
+    """Run every writer and return the manifest, augmented with quality metrics.
 
-    if cfg.export_psd:
+    `make_zip` / `make_psd` exist so a caller serving an interactive request
+    can skip the two artefacts nobody is waiting on. The 3D viewer needs the
+    layer PNGs and the manifest; the PSD and the ZIP are only fetched if the
+    user actually clicks download, so building them inline just adds dead
+    time to every job. See `build_downloads`.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    cache = RgbaCache(decomp, source_rgb)
+
+    # Composite once and use it for both the saved preview and the PSNR
+    # check, instead of stacking the full layer set twice.
+    preview = composite(decomp, source_rgb, cfg, cache)
+    manifest = write_layers(decomp, source_rgb, out_dir, cfg, cache, preview)
+    manifest["quality"] = reconstruction_error(decomp, source_rgb, preview)
+
+    want_psd = cfg.export_psd if make_psd is None else (make_psd and cfg.export_psd)
+    if want_psd:
         psd_path = os.path.join(out_dir, f"{_safe_name(decomp.source_name, 'layers')}.psd")
-        if write_psd(decomp, source_rgb, psd_path):
+        if write_psd(decomp, source_rgb, psd_path, cache):
             manifest["psd"] = os.path.basename(psd_path)
 
     with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as fh:
@@ -264,4 +324,36 @@ def export_all(decomp: Decomposition, source_rgb: np.ndarray, out_dir: str,
         bundle_zip(out_dir, zip_path)
         manifest["zip"] = os.path.basename(zip_path)
 
+    return manifest
+
+
+def build_downloads(decomp: Decomposition, source_rgb: np.ndarray, out_dir: str,
+                    cfg: Config = DEFAULT_CONFIG) -> Dict[str, object]:
+    """Produce the deferred PSD + ZIP for an already-exported job, on demand.
+
+    Idempotent: if the artefacts are already on disk it just reports them, so
+    repeated download clicks cost nothing.
+    """
+    manifest_path = os.path.join(out_dir, "manifest.json")
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+
+    stem = _safe_name(decomp.source_name, "layers")
+    cache = RgbaCache(decomp, source_rgb)
+
+    psd_path = os.path.join(out_dir, f"{stem}.psd")
+    if cfg.export_psd and not os.path.isfile(psd_path):
+        if write_psd(decomp, source_rgb, psd_path, cache):
+            manifest["psd"] = os.path.basename(psd_path)
+    elif os.path.isfile(psd_path):
+        manifest["psd"] = os.path.basename(psd_path)
+
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, indent=2)
+
+    # Built after the manifest is rewritten so the ZIP contains the final one.
+    zip_path = os.path.join(out_dir, f"{stem}-layers.zip")
+    if not os.path.isfile(zip_path):
+        bundle_zip(out_dir, zip_path)
+    manifest["zip"] = os.path.basename(zip_path)
     return manifest
