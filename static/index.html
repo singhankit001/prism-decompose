@@ -635,7 +635,14 @@ function stepTweens(now) {
 const canvas   = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+/* Pixel ratio is the single biggest lever on GPU cost: it is quadratic, so
+   DPR 2 on a Retina display shades 4x the pixels of DPR 1 -- and every one of
+   those pixels goes through bloom (a multi-pass mip chain) and an fbm noise
+   backdrop. Capping at 1.5 costs little perceptible sharpness for ~44% fewer
+   pixels; the adaptive controller below drops further if the GPU still can't
+   keep up. */
+const MAX_DPR = 1.5;
+renderer.setPixelRatio(Math.min(devicePixelRatio, MAX_DPR));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
@@ -867,6 +874,59 @@ composer.addPass(bloom);
 const grade = new ShaderPass(GRADE_SHADER);
 composer.addPass(grade);
 composer.addPass(new OutputPass());
+
+/* ---- adaptive quality -----------------------------------------------------
+   The scene was authored on a fast GPU, but it also runs on integrated
+   graphics, on battery, and on a 4K display where the same frame costs several
+   times more. Rather than picking one compromise for everybody, frame time is
+   measured and quality steps down until the frame budget is met:
+
+     0  DPR 1.5 + bloom      full cinematic look
+     1  DPR 1.0 + bloom      ~55% of the pixel cost
+     2  DPR 1.0, no bloom    drops the multi-pass mip chain entirely
+
+   Degrading is deliberately eager and recovery deliberately reluctant
+   (a long clean streak is required to step back up), because oscillating
+   between levels is more distracting than simply running one level lower. */
+const QUALITY = [
+  { dpr: MAX_DPR, bloom: true },
+  { dpr: 1.0,     bloom: true },
+  { dpr: 1.0,     bloom: false },
+];
+let qLevel = 0;
+let frameAcc = 0, frameCount = 0, goodStreak = 0;
+
+function applyQuality() {
+  const q = QUALITY[qLevel];
+  renderer.setPixelRatio(Math.min(devicePixelRatio, q.dpr));
+  composer.setPixelRatio?.(Math.min(devicePixelRatio, q.dpr));
+  // The cinematic toggle governs bloom *strength*; this governs whether the
+  // pass runs at all, so the two compose without fighting each other.
+  bloom.enabled = q.bloom;
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+}
+
+function sampleFrame(ms) {
+  // Ignore hitches from tab restore / GC: they are not sustained load.
+  if (ms > 250) return;
+  frameAcc += ms; frameCount++;
+  if (frameCount < 45) return;
+  const avg = frameAcc / frameCount;
+  frameAcc = 0; frameCount = 0;
+
+  if (avg > 26 && qLevel < QUALITY.length - 1) {     // < ~38 fps
+    qLevel++; goodStreak = 0; applyQuality();
+    console.info(`[prism] frame ${avg.toFixed(1)}ms — quality → ${qLevel}`);
+  } else if (avg < 15 && qLevel > 0) {               // > ~66 fps, comfortably
+    if (++goodStreak >= 6) {
+      qLevel--; goodStreak = 0; applyQuality();
+      console.info(`[prism] frame ${avg.toFixed(1)}ms — quality → ${qLevel}`);
+    }
+  } else {
+    goodStreak = 0;
+  }
+}
 
 /* ========================================================================
    HERO SCENE — procedurally drawn "layers" so the landing page shows the
@@ -1690,8 +1750,9 @@ SAMPLES.forEach(([name, url]) => {
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
+  // Via applyQuality so a resize cannot silently reset the pixel ratio back
+  // to full and undo whatever the adaptive controller settled on.
+  applyQuality();
 });
 
 // Re-fit when the explode slider settles, so opening the stack never pushes
@@ -1707,7 +1768,9 @@ let scanClock = 0;
 
 function animate(now) {
   requestAnimationFrame(animate);
-  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  const raw = now - last;
+  const dt = Math.min(raw / 1000, 0.1); last = now;
+  sampleFrame(raw);
 
   stepTweens(now);
   controls.update();
