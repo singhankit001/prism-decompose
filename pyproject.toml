@@ -54,8 +54,8 @@ dev = [
 prism = "cli:main"
 
 [project.urls]
-Homepage = "https://github.com/ankitsingh/prism-decompose"
-Repository = "https://github.com/ankitsingh/prism-decompose"
+Homepage = "https://github.com/singhankit001/prism-decompose"
+Repository = "https://github.com/singhankit001/prism-decompose"
 
 [tool.setuptools]
 packages = ["prism", "prism.stages"]

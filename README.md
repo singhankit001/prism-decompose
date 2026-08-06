@@ -26,7 +26,7 @@ Then it rebuilds the stack in 3D so you can orbit through the decomposition.
 <br>
 
 ```bash
-git clone https://github.com/<your-username>/prism-decompose.git
+git clone https://github.com/singhankit001/prism-decompose.git
 cd prism-decompose
 ./run.sh
 ```
